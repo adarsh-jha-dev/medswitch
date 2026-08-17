@@ -32,9 +32,16 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
+
+# claude code local settings (holds live secrets like MCP server API tokens)
+.claude/settings.local.json
+
+# scratch output from Bright Data CLI commands (create/heal/run test dumps)
+.brightdata-out/
 
 # typescript
 *.tsbuildinfo
