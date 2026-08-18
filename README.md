@@ -1,117 +1,119 @@
 # MedSwitch
 
 Compares Indian pharmacy prices and compositions across retailers, so a
-patient on a chronic medication can see a cheaper equivalent. Day 1 ingests
-raw listings from two retailers; Day 2 parses composition and matches
-equivalent products across them; Day 3+ is UI and fuzzy suggestion.
+patient on a chronic medication can see a cheaper equivalent.
 
-## What's built (Day 2)
+## What it does
 
-- **Two parsers, not one** (`src/parse/`), matched to the grammar each
-  retailer actually uses: PharmEasy's composition strings are rigidly
-  structured (`Name(value Unit)+Name(value Unit)`) and parse with a single
-  regex (`grammar.ts`) with a coverage check that bails to the LLM rather
-  than risk a silent partial parse. Jan Aushadhi's are free text with the
-  dose, dosage form, and release modifier all embedded inline, so those go
-  to an LLM parser (`llm.ts`, OpenAI, batched 20-at-a-time, structured JSON,
-  Zod-validated **per item** — one malformed item no longer nulls out the
-  other 19 in its batch, see CLAUDE.md) — cached by hash of the raw string in
-  `composition_parse_cache` so a re-run only pays for genuinely new strings.
-  Result: 155/367 rows (42%) parsed deterministically with zero LLM calls.
-- **Molecule resolution + aliases** (`resolve.ts`, `alias-seed.ts`): exact
-  match → alias table → salt-suffix stripping → auto-create. Punctuation is
-  stripped during normalization (not just whitespace) so spelling variants
-  like `S(-)Amlodipine` / `S-Amlodipine` / `S (-) Amlodipine` collapse to one
-  molecule instead of five (see CLAUDE.md heal log).
-- **The salt-mismatch safety rule**: when one side of a match states a salt
-  form and the other doesn't (e.g. PharmEasy's bare `Diclofenac` vs Jan
-  Aushadhi's `Diclofenac Sodium`), the match is allowed but capped at
-  `match_confidence = 0.6` and routed to `review` — never auto-matched. When
-  both sides state a salt and they differ, they're never matched at all. 55
-  of 57 `review` rows are this exact case — a real, populated review queue,
-  not a placeholder.
-- **Fingerprinting** (`fingerprint.ts`): order-insensitive hash over resolved
-  molecule ids + strength + dosage form + release modifier. Deterministic and
-  LLM-parsed compositions for the same real drug land on the same hash —
-  verified in `__tests__/fingerprint.test.ts` against real Day 1 strings,
-  including the two cases that must *not* match (different strength; strength
-  + release modifier).
-- **Pack size parsing** (`packsize.ts`): `"15 Tablet(s) in Strip"` / `"10's"`
-  → `{ count, type }`, turning `sale_price` into a real ₹/unit number.
-- **Backfill** (`scripts/parse.ts`): re-runnable — every write is an upsert
-  keyed on a stable hash (composition fingerprint, brand_key) or the
-  listing's own id. Confidence scoring: 1.00 regex + exact resolution, 0.85
-  LLM + exact resolution, capped at 0.60 on any salt mismatch, capped at 0.40
-  when dosage form had to be inferred from title text with no structured pack
-  field to back it up.
-- **Result**: all 367 listings resolved — 310 `auto`, 57 `review`, 0
-  `unmatched`. **36 composition groups have listings from both retailers**
-  (well above the ~15 needed to demo breadth). `pnpm parse:substitution`
-  reproduces the headline comparisons: Telmisartan 40mg+Amlodipine 5mg (Telma
-  AM ₹17.09/tablet vs Jan Aushadhi ₹1.51/tablet, 91% cheaper) and Metformin
-  500mg (Glycomet ₹1.47/tablet vs Jan Aushadhi ₹0.62/tablet, 58% cheaper).
-- **Known data-quality gap, left as-is (not silently "fixed")**: a handful of
-  molecules are duplicated by a genuine source typo in the retailer's own
-  text — `Metformin Hydrchloride` vs `Metformin Hydrochloride`, `Glimipride`
-  vs `Glimepiride`, `Chlorthalidon` vs `Chlorthalidone`, `Nimesulid` vs
-  `Nimesulide` (see `pnpm parse:report`). Fixing this needs fuzzy/typo
-  tolerance, which is exactly the kind of matching Day 2 deliberately avoided
-  doing automatically (embedding similarity could just as easily merge two
-  *different* drugs) — candidate for a human-reviewed Day 3 suggestion
-  feature on top of the `embedding` column, never on the auto-match path.
+Ingests product listings from two retailers, parses each retailer's raw
+composition text into structured molecule, strength, dosage form, and
+release modifier, resolves molecules across retailers (handling synonyms
+and salt-form differences), and matches equivalent products by a
+composition fingerprint. A substitution query then compares real
+price-per-unit across retailers for the same drug.
 
-## What's built (Day 1)
+## Schema
 
-- **Schema** (`src/db/schema/`): Postgres tables across canonical
-  (molecule/composition/brand_product), marketplace (retailer/listing/
-  price_point/raw_document), and ops (collector_run/extraction_issue).
-  `pgvector` enabled for Day 3 composition matching.
-- **Ingestion** (`src/ingest/`, `scripts/ingest.ts`): Bright Data
-  trigger→poll client, transactional batch writer, one runner file per
-  retailer behind a shared `RetailerRunner` interface.
-- **Two retailers scraped**, scoped to antihypertensives, antidiabetics, and
-  analgesics, all at Kolkata pincode 700001 (see `docs/targets.md` for the
-  full vetting notes — robots.txt compliance, page structure, why these two):
-  - **PharmEasy** — 153 listings from product + molecule-page discovery.
-  - **Jan Aushadhi** (via the real public data source, `pmbi.co.in`, not the
-    JS-only `janaushadhi.gov.in` portal) — 214 listings from a 6-term search.
-- **Result**: 367 listings, every one with a raw_document and non-null
-  `raw_composition_text`, 0 rows in `extraction_issue`.
+Postgres tables (`src/db/schema/`) in three groups:
 
-## What's not built yet
+- canonical: `molecule`, `molecule_alias`, `composition`,
+  `composition_molecule`, `brand_product`, `composition_parse_cache`
+- marketplace: `retailer`, `listing`, `price_point`, `raw_document`
+- ops: `collector_run`, `extraction_issue`
 
-- No UI — everything so far is schema, CLI ingestion, and CLI parsing/matching.
-- No `verified` status yet — nothing has moved a `review` row to `verified`
-  by hand; that's a human-in-the-loop step for a future review-queue UI.
-- Fuzzy/typo-tolerant molecule matching (see the known data-quality gap
-  above) — deliberately deferred to a human-reviewed Day 3 suggestion
-  feature, not the auto-match path.
-- PharmEasy's `mrp` field needed one heal to appear at all; Jan Aushadhi's
-  collector needed two heals (empty results array, then a search box that
-  wasn't actually filtering) — see `CLAUDE.md` for what broke and how it was
-  fixed, in case either regresses. Day 2 needed its own heals to the parsing
-  pipeline itself (molecule-name normalization, LLM batch validation) — also
-  logged in `CLAUDE.md`.
+`pgvector` is enabled on `composition.embedding` for a possible future
+fuzzy-similarity suggestion feature; it isn't used on the current match path.
+
+## Ingestion
+
+`src/ingest/`, `scripts/ingest.ts`: a Bright Data trigger/poll client, a
+transactional batch writer, and one runner file per retailer behind a shared
+`RetailerRunner` interface. See `docs/targets.md` for retailer vetting notes
+(robots.txt compliance, page structure).
+
+- PharmEasy: 153 listings from product and molecule-page discovery
+- Jan Aushadhi (via the public data source `pmbi.co.in`, not the JS-only
+  `janaushadhi.gov.in` portal): 214 listings from a 6-term search
+
+## Parsing and matching
+
+Two parsers (`src/parse/`), matched to the grammar each retailer actually uses:
+
+- PharmEasy's composition strings are rigidly structured
+  (`Name(value Unit)+Name(value Unit)`) and parse with a single regex
+  (`grammar.ts`), with a coverage check that falls back to the LLM rather
+  than risk a silent partial parse.
+- Jan Aushadhi's are free text, with the dose, dosage form, and release
+  modifier all embedded inline, so those go to an LLM parser (`llm.ts`,
+  OpenAI, batched, structured JSON, Zod-validated per item), cached by hash
+  of the raw string in `composition_parse_cache` so a re-run only pays for
+  genuinely new strings.
+
+155/367 rows (42%) parse deterministically with zero LLM calls.
+
+Molecule resolution (`resolve.ts`, `alias-seed.ts`) tries, in order: exact
+match, alias table, salt-suffix stripping, then auto-creates a new molecule
+as a last resort. Punctuation is stripped during normalization (not just
+whitespace) so spelling variants collapse to one molecule instead of several.
+
+Salt-mismatch rule: when one side of a match states a salt form and the
+other doesn't (PharmEasy's bare `Diclofenac` vs Jan Aushadhi's `Diclofenac
+Sodium`), the match is allowed but capped at `match_confidence = 0.6` and
+routed to `review`, never auto-matched. When both sides state a salt and
+they differ, they're never matched at all.
+
+Fingerprinting (`fingerprint.ts`) is an order-insensitive hash over resolved
+molecule ids, strength, dosage form, and release modifier, so the same real
+drug lands on the same hash regardless of which retailer's grammar produced it.
+
+Pack size parsing (`packsize.ts`) turns strings like `"15 Tablet(s) in
+Strip"` or `"10's"` into `{ count, type }`, which is what turns `sale_price`
+into a real per-unit number.
+
+The backfill (`scripts/parse.ts`) is re-runnable: every write is an upsert
+keyed on a stable hash (composition fingerprint, brand key) or the listing's
+own id.
+
+## Current results
+
+367 listings total, every one with a raw_document and non-null
+`raw_composition_text`, 0 rows in `extraction_issue`. All 367 are resolved:
+310 `auto`, 57 `review`, 0 `unmatched`. 36 composition groups have listings
+from both retailers. `pnpm parse:substitution` prints the cross-retailer
+price comparisons, for example:
+
+- Telmisartan 40mg + Amlodipine 5mg: Telma AM at ₹17.09/tablet vs Jan
+  Aushadhi at ₹1.51/tablet, 91% cheaper
+- Metformin 500mg: Glycomet at ₹1.47/tablet vs Jan Aushadhi at ₹0.62/tablet,
+  58% cheaper
+
+Known data-quality gap, left as-is rather than silently patched: a handful
+of molecules are duplicated by a genuine source typo in the retailer's own
+text (`Metformin Hydrchloride` vs `Metformin Hydrochloride`, `Glimipride`
+vs `Glimepiride`, `Chlorthalidon` vs `Chlorthalidone`, `Nimesulid` vs
+`Nimesulide`; see `pnpm parse:report`). Fixing this needs fuzzy/typo
+tolerance, and embedding similarity could just as easily merge two
+different drugs, so it stays off the auto-match path.
 
 ## Running it
 
 ```bash
 pnpm install
-cp .env.example .env   # fill in DATABASE_URL, BRIGHTDATA_API_TOKEN, collector IDs, OPENAI_API_KEY
-pnpm db:generate        # only if you change src/db/schema/
+cp .env.example .env
+pnpm db:generate
 pnpm db:migrate
 pnpm db:seed
 pnpm ingest --retailer=pharmeasy
 pnpm ingest --retailer=janaushadhi
-pnpm parse               # Day 2: parse + resolve + match all listings (idempotent, re-runnable)
-pnpm parse:report        # Step 8: parse method split, unresolved molecules, match status, cross-retailer overlap
-pnpm parse:substitution  # Step 7: the actual ₹/unit substitution comparisons
-pnpm test                 # vitest — fingerprint/grammar/packsize/units/resolve unit tests
+pnpm parse
+pnpm parse:report
+pnpm parse:substitution
+pnpm test
 ```
 
 Requires a Postgres database (Neon or Supabase) with the `vector` extension
-enabled, and a Bright Data account/API token (billing → promo code
-`wemakedevs` for hackathon credit).
+enabled, a Bright Data account/API token (billing, promo code `wemakedevs`
+for hackathon credit), and an OpenAI API key.
 
 ## Verifying results
 
