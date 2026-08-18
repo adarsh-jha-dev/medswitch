@@ -20,6 +20,8 @@ const bytea = customType<{ data: Buffer }>({
   },
 });
 
+export const matchStatuses = ["unmatched", "auto", "review", "verified", "rejected"] as const;
+
 export const retailer = pgTable(
   "retailer",
   {
@@ -48,6 +50,10 @@ export const listing = pgTable(
     rawCompositionText: text("raw_composition_text"),
     rawManufacturer: text("raw_manufacturer"),
     rawPackSize: text("raw_pack_size"),
+    matchStatus: varchar("match_status", { length: 16, enum: matchStatuses })
+      .notNull()
+      .default("unmatched"),
+    matchConfidence: numeric("match_confidence", { precision: 4, scale: 3 }),
     pincode: varchar("pincode", { length: 10 }).notNull(),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),

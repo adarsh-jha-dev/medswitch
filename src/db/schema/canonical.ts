@@ -1,6 +1,8 @@
 import {
+  boolean,
   index,
   integer,
+  jsonb,
   numeric,
   pgTable,
   serial,
@@ -23,6 +25,20 @@ export const molecule = pgTable(
   (table) => [uniqueIndex("molecule_normalized_name_idx").on(table.normalizedName)],
 );
 
+export const moleculeAlias = pgTable(
+  "molecule_alias",
+  {
+    id: serial("id").primaryKey(),
+    moleculeId: integer("molecule_id")
+      .notNull()
+      .references(() => molecule.id, { onDelete: "cascade" }),
+    alias: varchar("alias", { length: 256 }).notNull(),
+    normalizedAlias: varchar("normalized_alias", { length: 256 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("molecule_alias_normalized_idx").on(table.normalizedAlias)],
+);
+
 // A salt combination + strengths, e.g. "Metformin 500mg + Glimepiride 1mg".
 // fingerprint_hash dedupes regardless of how a retailer formatted the raw string.
 export const composition = pgTable(
@@ -31,6 +47,8 @@ export const composition = pgTable(
     id: serial("id").primaryKey(),
     fingerprintHash: varchar("fingerprint_hash", { length: 64 }).notNull(),
     normalizedText: text("normalized_text").notNull(),
+    dosageForm: varchar("dosage_form", { length: 32 }).notNull(),
+    releaseModifier: varchar("release_modifier", { length: 32 }),
     // pgvector embedding of the normalized composition text, for Day 3 fuzzy matching.
     embedding: vector("embedding", { dimensions: 1536 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -68,7 +86,26 @@ export const brandProduct = pgTable(
       onDelete: "set null",
     }),
     packSize: varchar("pack_size", { length: 128 }),
+    packUnitCount: integer("pack_unit_count"),
+    packUnitType: varchar("pack_unit_type", { length: 32 }),
+    isGeneric: boolean("is_generic").default(false).notNull(),
+    brandKey: varchar("brand_key", { length: 64 }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [index("brand_product_composition_id_idx").on(table.compositionId)],
+  (table) => [
+    index("brand_product_composition_id_idx").on(table.compositionId),
+    uniqueIndex("brand_product_brand_key_idx").on(table.brandKey),
+  ],
 );
+
+export const compositionParseMethods = ["regex", "llm"] as const;
+
+export const compositionParseCache = pgTable("composition_parse_cache", {
+  id: serial("id").primaryKey(),
+  rawHash: varchar("raw_hash", { length: 64 }).notNull(),
+  rawText: text("raw_text").notNull(),
+  parsed: jsonb("parsed"), // null = confirmed parse failure, cached so it isn't retried
+  method: varchar("method", { length: 16, enum: compositionParseMethods }).notNull(),
+  model: varchar("model", { length: 64 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [uniqueIndex("composition_parse_cache_raw_hash_idx").on(table.rawHash)]);

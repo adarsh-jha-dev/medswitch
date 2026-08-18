@@ -1,23 +1,9 @@
 import "dotenv/config";
 import { db } from "../src/db";
-import { molecule, retailer } from "../src/db/schema";
-
-// Scoped to Day 1's three therapeutic categories: antihypertensives,
-// antidiabetics, analgesics (see docs/targets.md).
-const MOLECULES = [
-  "Amlodipine",
-  "Telmisartan",
-  "Losartan Potassium",
-  "Metoprolol Succinate",
-  "Metformin Hydrochloride",
-  "Glimepiride",
-  "Sitagliptin Phosphate",
-  "Voglibose",
-  "Paracetamol",
-  "Diclofenac Sodium",
-  "Ibuprofen",
-  "Aceclofenac",
-];
+import { molecule, moleculeAlias, retailer } from "../src/db/schema";
+import { ALIAS_SEED } from "../src/parse/alias-seed";
+import { normalizeMoleculeName } from "../src/parse/resolve";
+import { SEED_MOLECULE_NAMES as MOLECULES } from "../src/parse/seed-molecules";
 
 const RETAILERS = [
   {
@@ -46,7 +32,28 @@ async function main() {
     await db.insert(retailer).values(r).onConflictDoNothing({ target: retailer.slug });
   }
 
-  console.log(`Seeded ${MOLECULES.length} molecules and ${RETAILERS.length} retailers.`);
+  const molecules = await db.select({ id: molecule.id, normalizedName: molecule.normalizedName }).from(molecule);
+  const byNormalizedName = new Map(molecules.map((m) => [m.normalizedName, m.id]));
+
+  let aliasCount = 0;
+  for (const { moleculeName, aliases } of ALIAS_SEED) {
+    const moleculeId = byNormalizedName.get(normalizeMoleculeName(moleculeName));
+    if (!moleculeId) {
+      console.warn(`Skipping aliases for unknown molecule "${moleculeName}" — seed MOLECULES first.`);
+      continue;
+    }
+    for (const alias of aliases) {
+      await db
+        .insert(moleculeAlias)
+        .values({ moleculeId, alias, normalizedAlias: normalizeMoleculeName(alias) })
+        .onConflictDoNothing({ target: moleculeAlias.normalizedAlias });
+      aliasCount++;
+    }
+  }
+
+  console.log(
+    `Seeded ${MOLECULES.length} molecules, ${RETAILERS.length} retailers, ${aliasCount} molecule aliases.`,
+  );
   process.exit(0);
 }
 

@@ -1,0 +1,1 @@
+ALTER TABLE "composition_parse_cache" ALTER COLUMN "parsed" DROP NOT NULL;
