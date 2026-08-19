@@ -18,6 +18,11 @@ const RETAILERS = [
     slug: "pharmeasy",
     baseUrl: "https://pharmeasy.in",
   },
+  {
+    name: "Apollo Pharmacy",
+    slug: "apollo",
+    baseUrl: "https://www.apollopharmacy.in",
+  },
 ];
 
 async function main() {

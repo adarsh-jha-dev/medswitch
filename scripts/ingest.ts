@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { eq } from "drizzle-orm";
 import { db } from "../src/db";
-import { retailer } from "../src/db/schema";
+import { listing, retailer } from "../src/db/schema";
 import { runCollector } from "../src/ingest/brightdata";
 import { closeCollectorRun, openCollectorRun, persistProductBatch } from "../src/ingest/persist";
 import type { RetailerRunner } from "../src/ingest/runners/types";
@@ -11,6 +11,7 @@ const BATCH_SIZE = 50;
 const RUNNERS: Record<string, () => Promise<RetailerRunner>> = {
   janaushadhi: async () => (await import("../src/ingest/runners/janaushadhi")).janaushadhiRunner,
   pharmeasy: async () => (await import("../src/ingest/runners/pharmeasy")).pharmeasyRunner,
+  apollo: async () => (await import("../src/ingest/runners/apollo")).apolloRunner,
 };
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -22,7 +23,7 @@ function chunk<T>(items: T[], size: number): T[][] {
 async function discoverUrls(runner: RetailerRunner): Promise<string[]> {
   const pages = runner.discoveryUrls();
   const urls = new Set<string>();
-  for (const batch of chunk(pages, 50)) {
+  for (const batch of chunk(pages, runner.discoveryChunkSize ?? 50)) {
     const raw = await runCollector(runner.discoveryCollectorId, batch);
     for (const record of raw) {
       for (const discovered of runner.normalizeDiscovery(record)) {
@@ -34,7 +35,7 @@ async function discoverUrls(runner: RetailerRunner): Promise<string[]> {
 }
 
 async function ingestProducts(runner: RetailerRunner, urls: string[], retailerId: number, pincode: string) {
-  for (const batch of chunk(urls, BATCH_SIZE)) {
+  for (const batch of chunk(urls, runner.productChunkSize ?? BATCH_SIZE)) {
     const runId = await openCollectorRun(retailerId, runner.productCollectorId, batch.length);
     try {
       const raw = await runCollector(runner.productCollectorId, batch);
@@ -69,13 +70,31 @@ async function ingestSinglePhase(runner: RetailerRunner, retailerId: number, pin
   }
 }
 
+async function ingestRefreshOnly(runner: RetailerRunner, retailerId: number, pincode: string) {
+  if (runner.singlePhase) {
+    // Jan Aushadhi's product page IS the search results — expandSinglePhase
+    // already re-derives everything fresh each run, and PMBI's list is a
+    // fixed nationwide MRP cap that rarely moves, so a separate refresh mode
+    // adds nothing here.
+    throw new Error(`${runner.retailerSlug} is singlePhase — refresh-only isn't meaningful, just run without --refresh-only`);
+  }
+  const existing = await db
+    .select({ productUrl: listing.productUrl })
+    .from(listing)
+    .where(eq(listing.retailerId, retailerId));
+  const urls = existing.map((r) => r.productUrl);
+  console.log(`[${runner.retailerSlug}] refresh-only: re-running product collector over ${urls.length} known listings...`);
+  await ingestProducts(runner, urls, retailerId, pincode);
+}
+
 async function main() {
   const arg = process.argv.find((a) => a.startsWith("--retailer="));
   const slug = arg?.split("=")[1];
   if (!slug || !RUNNERS[slug]) {
-    console.error(`Usage: pnpm ingest --retailer=<${Object.keys(RUNNERS).join("|")}>`);
+    console.error(`Usage: pnpm ingest --retailer=<${Object.keys(RUNNERS).join("|")}> [--refresh-only]`);
     process.exit(1);
   }
+  const refreshOnly = process.argv.includes("--refresh-only");
 
   const pincode = process.env.SCRAPE_PINCODE;
   if (!pincode) throw new Error("SCRAPE_PINCODE is not set");
@@ -88,7 +107,11 @@ async function main() {
     .where(eq(retailer.slug, runner.retailerSlug));
   if (!retailerRow) throw new Error(`retailer '${runner.retailerSlug}' not seeded — run pnpm db:seed first`);
 
-  if (runner.singlePhase) {
+  if (refreshOnly) {
+    // No discovery — re-scrape listings we already have so price_point picks
+    // up drift without spending discovery-collector credits on a schedule.
+    await ingestRefreshOnly(runner, retailerRow.id, pincode);
+  } else if (runner.singlePhase) {
     console.log(`[${runner.retailerSlug}] single-phase ingest (discovery rows are product rows)...`);
     await ingestSinglePhase(runner, retailerRow.id, pincode);
   } else {

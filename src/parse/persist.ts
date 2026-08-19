@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { brandProduct, composition, compositionMolecule, molecule } from "../db/schema";
-import { fingerprint, type FingerprintComponent } from "./fingerprint";
+import { fingerprint, moleculeSetHash, type FingerprintComponent } from "./fingerprint";
 import type { DosageForm, ReleaseModifier } from "./types";
 
 const moleculeNameCache = new Map<number, string>();
@@ -22,9 +22,18 @@ export async function upsertComposition(params: {
   releaseModifier: ReleaseModifier | null;
 }): Promise<number> {
   const hash = fingerprint(params);
+  const setHash = moleculeSetHash(params.components.map((c) => c.moleculeId));
 
-  const [existing] = await db.select({ id: composition.id }).from(composition).where(eq(composition.fingerprintHash, hash));
-  if (existing) return existing.id;
+  const [existing] = await db
+    .select({ id: composition.id, moleculeSetHash: composition.moleculeSetHash })
+    .from(composition)
+    .where(eq(composition.fingerprintHash, hash));
+  if (existing) {
+    if (existing.moleculeSetHash === null) {
+      await db.update(composition).set({ moleculeSetHash: setHash }).where(eq(composition.id, existing.id));
+    }
+    return existing.id;
+  }
 
   const names = await Promise.all(params.components.map((c) => getMoleculeName(c.moleculeId)));
   const normalizedText =
@@ -38,6 +47,7 @@ export async function upsertComposition(params: {
       normalizedText,
       dosageForm: params.dosageForm,
       releaseModifier: params.releaseModifier,
+      moleculeSetHash: setHash,
     })
     .onConflictDoNothing({ target: composition.fingerprintHash })
     .returning({ id: composition.id });

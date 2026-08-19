@@ -14,7 +14,10 @@
     "test": "vitest run",
     "parse": "tsx scripts/parse.ts",
     "parse:report": "tsx scripts/parse-report.ts",
-    "parse:substitution": "tsx scripts/substitution-query.ts"
+    "parse:substitution": "tsx scripts/substitution-query.ts",
+    "heal:log": "tsx scripts/heal-log.ts",
+    "merge:suggestions": "tsx scripts/merge-suggestions.ts",
+    "banned:ingest": "tsx scripts/banned-fdc-ingest.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

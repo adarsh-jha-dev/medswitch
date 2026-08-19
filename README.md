@@ -14,15 +14,20 @@ price-per-unit across retailers for the same drug.
 
 ## Schema
 
-Postgres tables (`src/db/schema/`) in three groups:
+Postgres tables (`src/db/schema/`) in five groups:
 
 - canonical: `molecule`, `molecule_alias`, `composition`,
-  `composition_molecule`, `brand_product`, `composition_parse_cache`
+  `composition_molecule`, `brand_product`, `composition_parse_cache`,
+  `molecule_merge_suggestion`
 - marketplace: `retailer`, `listing`, `price_point`, `raw_document`
-- ops: `collector_run`, `extraction_issue`
+- ops: `collector_run`, `extraction_issue`, `heal_event`
+- banned: `banned_fdc`, `banned_fdc_molecule`
+- safety: `safety_chunk`
 
 `pgvector` is enabled on `composition.embedding` for a possible future
 fuzzy-similarity suggestion feature; it isn't used on the current match path.
+`safety_chunk.embedding` is populated once a safety-text collector exists
+(not yet built — see Day 3 cut list below).
 
 ## Ingestion
 
@@ -34,6 +39,13 @@ transactional batch writer, and one runner file per retailer behind a shared
 - PharmEasy: 153 listings from product and molecule-page discovery
 - Jan Aushadhi (via the public data source `pmbi.co.in`, not the JS-only
   `janaushadhi.gov.in` portal): 214 listings from a 6-term search
+- Apollo Pharmacy: 31 listings discovered from `/salt/<slug>` pages, but only
+  1 has usable field data as of this writing — see "Apollo Pharmacy
+  reliability" below before trusting this number to grow on its own.
+
+`pnpm ingest --retailer=<slug> --refresh-only` re-scrapes listings already in
+the DB (no discovery) so `price_point` can pick up drift on a schedule
+without spending discovery-collector credits — see Scheduled refresh below.
 
 ## Parsing and matching
 
@@ -76,11 +88,15 @@ own id.
 
 ## Current results
 
-367 listings total, every one with a raw_document and non-null
-`raw_composition_text`, 0 rows in `extraction_issue`. All 367 are resolved:
-310 `auto`, 57 `review`, 0 `unmatched`. 36 composition groups have listings
-from both retailers. `pnpm parse:substitution` prints the cross-retailer
-price comparisons, for example:
+398 listings total across 3 retailers (PharmEasy 153, Jan Aushadhi 214,
+Apollo Pharmacy 31). 368 have `raw_composition_text` and are resolved: 311
+`auto`, 57 `review`, 0 genuinely `unmatched` (the 30 `unmatched` in
+`match_status` are all Apollo listings still missing composition text — see
+below, not a matching failure). 36 composition groups have listings from 2+
+retailers, unchanged from Day 2 — Apollo hasn't contributed a confirmed
+cross-retailer match yet because of the reliability issue below.
+`pnpm parse:substitution` prints the cross-retailer price comparisons, for
+example:
 
 - Telmisartan 40mg + Amlodipine 5mg: Telma AM at ₹17.09/tablet vs Jan
   Aushadhi at ₹1.51/tablet, 91% cheaper
@@ -91,9 +107,78 @@ Known data-quality gap, left as-is rather than silently patched: a handful
 of molecules are duplicated by a genuine source typo in the retailer's own
 text (`Metformin Hydrchloride` vs `Metformin Hydrochloride`, `Glimipride`
 vs `Glimepiride`, `Chlorthalidon` vs `Chlorthalidone`, `Nimesulid` vs
-`Nimesulide`; see `pnpm parse:report`). Fixing this needs fuzzy/typo
-tolerance, and embedding similarity could just as easily merge two
-different drugs, so it stays off the auto-match path.
+`Nimesulide`; see `pnpm parse:report`). Trigram similarity now surfaces most
+of these as review suggestions (see below) — but not all of them; see the
+merge-suggestions section for why.
+
+### Apollo Pharmacy reliability
+
+Both Apollo collectors (`apollo-product`, `apollo-discovery`) extract every
+target field correctly when run against a single URL — verified repeatedly.
+But under Bright Data's batch mode (many URLs in one job, which is what
+normal ingestion uses for speed), most rows come back with the extracted
+fields null even though the row itself is returned — first observed at 12
+concurrent discovery URLs (1/14 pages populated), confirmed again at product
+scrape time (0/12, then 0/19 populated across two full batches). Falling back
+to one collector call per URL (`discoveryChunkSize`/`productChunkSize: 1` in
+`src/ingest/runners/apollo.ts`) helped at first, but a subsequent refresh
+attempt returned degraded results even on a single URL that had worked
+moments earlier — consistent with Apollo's own anti-bot/rate-limiting
+reacting to the burst of requests generated while iterating on this
+collector, not a bug in the extraction logic itself. Every gap is logged
+honestly as a real `extraction_issue` row rather than silently dropped.
+Net effect: 31 listings discovered, only 1 with usable composition/price
+data as of this writing. Re-running `pnpm ingest --retailer=apollo
+--refresh-only` after a cooldown should recover the rest — this needs a
+retailer that behaves like PharmEasy/Jan Aushadhi under sustained scraping,
+which Apollo's anti-bot posture doesn't currently allow for.
+
+### Banned FDC detection
+
+`pnpm banned:ingest` loads the real, complete August 2024 CDSCO tranche — 156
+fixed-dose combinations prohibited under S.O.3285(E) through S.O.3440(E), all
+dated 12.08.2024 (transcribed verbatim from the Ministry of Health & Family
+Welfare gazette PDF, cross-checked against CDSCO's own Gazette Notifications
+index). Matching is a two-tier derived join on `composition.molecule_set_hash`
+(molecule identity only, no strength) via `src/parse/banned-match.ts` — never
+a stored flag, and never a bare "BANNED" claim: every match carries its
+notification reference, date, and legal status (`prohibited` /
+`unapproved` / `revoked` / `sub_judice`), because FDC prohibitions have real
+legal history (the 2016 S.O. 814(E) tranche was quashed by the Delhi High
+Court in 2019, appeal still pending — a status column, not a boolean).
+
+Current results (`pnpm parse:report`): **1 confirmed match** — Camylofin
+Dihydrochloride 25mg + Paracetamol 300mg, matching banned item S.O.3412(E) at
+the exact stated strengths — plus 8 candidate-only matches, including 4
+Aceclofenac+Paracetamol compositions (100mg/325mg and 100mg/500mg, both
+scraped from PharmEasy) against the banned 50mg/125mg strength — correctly
+left as candidates, not confirmed, since the strengths genuinely differ.
+
+### Ops tracking and merge suggestions
+
+`heal_event` (`pnpm heal:log`) logs every Bright Data `scraper heal` call
+going forward, with real before/after row counts — 3 logged so far (2 from
+Day 1 Jan Aushadhi fixes, 1 from the Apollo product collector). `pnpm
+merge:suggestions` runs `pg_trgm` similarity over molecule names and writes
+candidates for human review, never auto-merging — 8 pending. The plan's
+suggested 0.85 similarity threshold caught none of the real typo duplicates
+above (they score 0.75-0.81); 0.7 catches most of them, but not
+`Glimepiride`/`Glimipride` (0.44 — an e/i transposition, a case trigram
+similarity structurally struggles with on short words), and a threshold low
+enough to catch that pulls in clearly-different drugs as noise, so it's left
+as a documented gap rather than force-fit.
+
+### Scheduled refresh
+
+`.github/workflows/refresh-prices.yml` re-runs `pnpm ingest --retailer=X
+--refresh-only` (product collector only, no discovery) so `price_point` picks
+up real price drift over time instead of being a single point. The `cron:`
+trigger is **commented out on purpose** — enabling it means the workflow
+starts spending Bright Data credits on its own schedule with nobody
+watching. It's wired to `workflow_dispatch` only until that's deliberately
+turned on. `price_point` is append-on-change by design: if a scheduled run
+finds no price movement, that's a working change-detector reporting nothing
+changed, not a broken pipeline — don't manufacture history to fill a chart.
 
 ## Running it
 
@@ -105,15 +190,18 @@ pnpm db:migrate
 pnpm db:seed
 pnpm ingest --retailer=pharmeasy
 pnpm ingest --retailer=janaushadhi
+pnpm ingest --retailer=apollo
 pnpm parse
 pnpm parse:report
 pnpm parse:substitution
+pnpm banned:ingest
+pnpm merge:suggestions
 pnpm test
 ```
 
-Requires a Postgres database (Neon or Supabase) with the `vector` extension
-enabled, a Bright Data account/API token (billing, promo code `wemakedevs`
-for hackathon credit), and an OpenAI API key.
+Requires a Postgres database (Neon or Supabase) with the `vector` and
+`pg_trgm` extensions enabled, a Bright Data account/API token (billing, promo
+code `wemakedevs` for hackathon credit), and an OpenAI API key.
 
 ## Verifying results
 
@@ -133,5 +221,7 @@ SELECT field_name, COUNT(*) FROM extraction_issue GROUP BY 1 ORDER BY 2 DESC;
 ## Bright Data collectors
 
 Pinned in `.env` / `CLAUDE.md` so they get reused rather than recreated:
-`pharmeasy-product`, `pharmeasy-discovery`, `janaushadhi`. Heal with
-`npx @brightdata/cli scraper heal <id> "<what broke>" --url <url>`.
+`pharmeasy-product`, `pharmeasy-discovery`, `janaushadhi`, `apollo-product`,
+`apollo-discovery`. Heal with `npx @brightdata/cli scraper heal <id> "<what
+broke>" --url <url>`, or `pnpm heal:log` to log the heal as a `heal_event`
+row in the same step.

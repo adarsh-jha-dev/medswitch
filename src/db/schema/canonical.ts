@@ -49,11 +49,18 @@ export const composition = pgTable(
     normalizedText: text("normalized_text").notNull(),
     dosageForm: varchar("dosage_form", { length: 32 }).notNull(),
     releaseModifier: varchar("release_modifier", { length: 32 }),
+    // sha256 of sorted molecule ids only — no strength, dosage form, or
+    // release modifier. Looser than fingerprint_hash on purpose: banned-FDC
+    // notifications specify molecule sets, not our dosage-form granularity.
+    moleculeSetHash: varchar("molecule_set_hash", { length: 64 }).notNull(),
     // pgvector embedding of the normalized composition text, for Day 3 fuzzy matching.
     embedding: vector("embedding", { dimensions: 1536 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [uniqueIndex("composition_fingerprint_hash_idx").on(table.fingerprintHash)],
+  (table) => [
+    uniqueIndex("composition_fingerprint_hash_idx").on(table.fingerprintHash),
+    index("composition_molecule_set_hash_idx").on(table.moleculeSetHash),
+  ],
 );
 
 export const compositionMolecule = pgTable(
@@ -109,3 +116,26 @@ export const compositionParseCache = pgTable("composition_parse_cache", {
   model: varchar("model", { length: 64 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [uniqueIndex("composition_parse_cache_raw_hash_idx").on(table.rawHash)]);
+
+// A pg_trgm-similarity candidate pair for two molecule rows that look like the
+// same drug spelled differently (typo duplicates, not synonyms — those go
+// through molecule_alias instead). Suggest only, never auto-merge.
+export const moleculeMergeSuggestionStatus = ["pending", "approved", "rejected"] as const;
+
+export const moleculeMergeSuggestion = pgTable(
+  "molecule_merge_suggestion",
+  {
+    id: serial("id").primaryKey(),
+    moleculeAId: integer("molecule_a_id")
+      .notNull()
+      .references(() => molecule.id, { onDelete: "cascade" }),
+    moleculeBId: integer("molecule_b_id")
+      .notNull()
+      .references(() => molecule.id, { onDelete: "cascade" }),
+    similarity: numeric("similarity", { precision: 4, scale: 3 }).notNull(),
+    status: varchar("status", { length: 16, enum: moleculeMergeSuggestionStatus }).notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (table) => [uniqueIndex("molecule_merge_suggestion_pair_idx").on(table.moleculeAId, table.moleculeBId)],
+);

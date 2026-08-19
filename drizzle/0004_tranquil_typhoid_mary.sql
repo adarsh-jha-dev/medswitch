@@ -1,0 +1,1 @@
+ALTER TABLE "composition" ALTER COLUMN "molecule_set_hash" SET NOT NULL;

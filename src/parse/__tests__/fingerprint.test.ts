@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fingerprint, type FingerprintComponent } from "../fingerprint";
+import { fingerprint, moleculeSetHash, type FingerprintComponent } from "../fingerprint";
 
 // stand-ins for what resolve.ts would return; "Diclofenac" resolves to the same id as Diclofenac Sodium via the alias table
 const TELMISARTAN = 1;
@@ -86,5 +86,26 @@ describe("fingerprint", () => {
       releaseModifier: null,
     });
     expect(forward).toBe(reversed);
+  });
+});
+
+describe("moleculeSetHash", () => {
+  it("ignores strength — different doses of the same molecule set still match, unlike fingerprint()", () => {
+    // Aceclofenac 100mg + Paracetamol 325mg (a real scraped composition) vs
+    // Aceclofenac 50mg + Paracetamol 125mg (the banned CDSCO strength) — same
+    // molecule set, deliberately looser than fingerprint() so it can still
+    // surface as a banned-FDC candidate.
+    const scraped = moleculeSetHash([12, 4]);
+    const banned = moleculeSetHash([12, 4]);
+    expect(scraped).toBe(banned);
+  });
+
+  it("is order-insensitive and de-duplicates repeated ids", () => {
+    expect(moleculeSetHash([TELMISARTAN, AMLODIPINE])).toBe(moleculeSetHash([AMLODIPINE, TELMISARTAN]));
+    expect(moleculeSetHash([TELMISARTAN, TELMISARTAN, AMLODIPINE])).toBe(moleculeSetHash([TELMISARTAN, AMLODIPINE]));
+  });
+
+  it("differs when the molecule set differs, even by one component", () => {
+    expect(moleculeSetHash([TELMISARTAN, AMLODIPINE])).not.toBe(moleculeSetHash([TELMISARTAN, AMLODIPINE, PARACETAMOL]));
   });
 });

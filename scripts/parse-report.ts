@@ -1,7 +1,8 @@
 import "dotenv/config";
 import { eq, sql } from "drizzle-orm";
 import { db } from "../src/db";
-import { listing, molecule, retailer } from "../src/db/schema";
+import { healEvent, listing, molecule, moleculeMergeSuggestion, retailer } from "../src/db/schema";
+import { findBannedFdcMatches } from "../src/parse/banned-match";
 import { parseStructured } from "../src/parse/grammar";
 import { normalizeMoleculeName } from "../src/parse/resolve";
 import { SEED_MOLECULE_NAMES } from "../src/parse/seed-molecules";
@@ -80,6 +81,52 @@ async function main() {
   if (groupCount < 15) {
     console.log("Fewer than ~15 — the demo needs breadth of examples. Consider widening PharmEasy discovery before adding features.");
   }
+
+  console.log("\n=== Listings per retailer ===");
+  const perRetailer = await db.execute<{ name: string; listings: number }>(sql`
+    SELECT r.name AS name, COUNT(l.id)::int AS listings
+    FROM retailer r
+    LEFT JOIN listing l ON l.retailer_id = r.id
+    GROUP BY r.name
+    ORDER BY listings DESC
+  `);
+  for (const row of perRetailer) console.log(`  ${row.name.padEnd(14)} ${row.listings}`);
+
+  console.log("\n=== Heal events logged ===");
+  const heals = await db
+    .select({ collectorId: healEvent.collectorId, symptom: healEvent.symptom, rowsBefore: healEvent.rowsBefore, rowsAfter: healEvent.rowsAfter })
+    .from(healEvent);
+  if (heals.length === 0) {
+    console.log("(none)");
+  } else {
+    for (const h of heals) {
+      const before = h.rowsBefore ?? "?";
+      const after = h.rowsAfter ?? "?";
+      console.log(`  [${h.collectorId}] ${h.symptom} (${before} -> ${after} rows)`);
+    }
+  }
+
+  console.log("\n=== Banned-FDC matches (composition.molecule_set_hash join) ===");
+  const bannedMatches = await findBannedFdcMatches();
+  const confirmed = bannedMatches.filter((m) => m.tier === "confirmed");
+  const candidates = bannedMatches.filter((m) => m.tier === "candidate");
+  console.log(`${confirmed.length} confirmed, ${candidates.length} candidate-only.`);
+  for (const m of bannedMatches) {
+    console.log(
+      `  [${m.tier.toUpperCase()}] ${m.compositionText} <-> "${m.rawText}" (${m.notificationRef}${m.notificationDate ? `, ${m.notificationDate}` : ""}, ${m.status})`,
+    );
+  }
+
+  console.log("\n=== Safety corpus ===");
+  const safetyCounts = await db.execute<{ total: number; embedded: number }>(sql`
+    SELECT COUNT(*)::int AS total, COUNT(embedding)::int AS embedded FROM safety_chunk
+  `);
+  console.log(`${safetyCounts[0]?.total ?? 0} chunks, ${safetyCounts[0]?.embedded ?? 0} embedded.`);
+
+  console.log("\n=== Molecule merge suggestions ===");
+  const suggestions = await db.select({ status: moleculeMergeSuggestion.status }).from(moleculeMergeSuggestion);
+  const pending = suggestions.filter((s) => s.status === "pending").length;
+  console.log(`${suggestions.length} total, ${pending} pending review.`);
 
   process.exit(0);
 }

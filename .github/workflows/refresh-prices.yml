@@ -1,0 +1,33 @@
+name: Refresh price snapshots
+
+# Cron trigger is commented out on purpose — enabling it means this workflow
+# starts spending Bright Data credits on its own schedule with nobody
+# watching. Uncomment the `schedule:` block below once you've reviewed the
+# cadence and are ready for that. Until then this only runs from the Actions
+# tab (workflow_dispatch), so it's exercised and provable without being live.
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 3,11,19 * * *" # 08:30, 16:30, 00:30 IST — 3x/day, staggered
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        retailer: [pharmeasy]
+        # add apollo here once its collector is reliable under batch load — see CLAUDE.md
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Refresh ${{ matrix.retailer }} price snapshots
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
+          SCRAPE_PINCODE: "700001"
+        run: pnpm ingest --retailer=${{ matrix.retailer }} --refresh-only
