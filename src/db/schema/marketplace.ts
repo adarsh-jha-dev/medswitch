@@ -84,7 +84,7 @@ export const pricePoint = pgTable(
   (table) => [index("price_point_listing_id_captured_at_idx").on(table.listingId, table.capturedAt.desc())],
 );
 
-// Gzipped raw collector output, kept so fields can be re-parsed without re-scraping.
+// Gzipped raw collector output, so fields can be re-parsed without re-scraping.
 export const rawDocument = pgTable(
   "raw_document",
   {

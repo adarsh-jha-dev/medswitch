@@ -1,13 +1,10 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 
-// Two-tier join, never conflated: molecule_set_hash equality is a candidate
-// (same molecule set, CDSCO's own granularity — no strength, dosage form, or
-// release modifier). A candidate is promoted to confirmed only when the
-// notification also states strengths and every one of them matches a
-// composition_molecule row exactly. A notification that never states a
-// strength at all stays a candidate forever — there is nothing to confirm it
-// against, even though it may well cover every strength in practice.
+// Two-tier join: molecule_set_hash equality is a candidate; promoted to
+// confirmed only when the notification states strengths and every one
+// matches a composition_molecule row exactly. A notification that never
+// states a strength stays a candidate forever.
 export interface BannedFdcMatch {
   compositionId: number;
   compositionText: string;
@@ -16,10 +13,11 @@ export interface BannedFdcMatch {
   notificationDate: string | null;
   status: string;
   rawText: string;
+  sourceUrl: string | null;
   tier: "candidate" | "confirmed";
 }
 
-interface BannedFdcMatchRow {
+type BannedFdcMatchRow = {
   composition_id: number;
   normalized_text: string;
   banned_fdc_id: number;
@@ -27,9 +25,10 @@ interface BannedFdcMatchRow {
   notification_date: string | null;
   status: string;
   raw_text: string;
+  source_url: string | null;
   stated_strengths: number;
   unmatched_strengths: number;
-}
+};
 
 export async function findBannedFdcMatches(): Promise<BannedFdcMatch[]> {
   const rows = await db.execute<BannedFdcMatchRow>(sql`
@@ -41,6 +40,7 @@ export async function findBannedFdcMatches(): Promise<BannedFdcMatch[]> {
       bf.notification_date,
       bf.status,
       bf.raw_text,
+      bf.source_url,
       COUNT(*) FILTER (WHERE bfm.strength_mg IS NOT NULL)::int AS stated_strengths,
       COUNT(*) FILTER (
         WHERE bfm.strength_mg IS NOT NULL
@@ -55,7 +55,7 @@ export async function findBannedFdcMatches(): Promise<BannedFdcMatch[]> {
     FROM composition c
     JOIN banned_fdc bf ON bf.molecule_set_hash = c.molecule_set_hash
     JOIN banned_fdc_molecule bfm ON bfm.banned_fdc_id = bf.id
-    GROUP BY c.id, c.normalized_text, bf.id, bf.notification_ref, bf.notification_date, bf.status, bf.raw_text
+    GROUP BY c.id, c.normalized_text, bf.id, bf.notification_ref, bf.notification_date, bf.status, bf.raw_text, bf.source_url
     ORDER BY bf.notification_ref
   `);
 
@@ -67,6 +67,7 @@ export async function findBannedFdcMatches(): Promise<BannedFdcMatch[]> {
     notificationDate: r.notification_date,
     status: r.status,
     rawText: r.raw_text,
+    sourceUrl: r.source_url,
     tier: r.stated_strengths > 0 && r.unmatched_strengths === 0 ? "confirmed" : "candidate",
   }));
 }

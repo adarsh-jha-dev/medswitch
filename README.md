@@ -180,6 +180,73 @@ turned on. `price_point` is append-on-change by design: if a scheduled run
 finds no price movement, that's a working change-detector reporting nothing
 changed, not a broken pipeline — don't manufacture history to fill a chart.
 
+## UI (Day 4)
+
+No tRPC — this app is read-mostly and every page is a server-rendered
+query, so React Server Components read Drizzle directly via plain async
+functions in `src/queries/` (`substitution.ts`, `banned.ts`, `ops.ts`,
+`review.ts`), and the three write paths are Next.js server actions
+(`app/review/actions.ts`), not an API layer. `scripts/substitution-query.ts`
+now calls the same query module the UI does — one source of truth, not two
+copies drifting apart. Savings math (`perUnit`, `pctCheaper`, `annualSaving`)
+lives in `src/queries/savings.ts` with its own unit tests
+(`src/queries/__tests__/savings.test.ts`), since it's the number the whole
+demo rests on.
+
+Routes:
+
+- `/` — search by brand name or molecule (plain `ILIKE`, pg_trgm already
+  enabled from Day 3 but not used for fuzzy scoring here — a wrong search
+  result is harmless since a human picks). A single unambiguous match
+  redirects straight to its composition page. Also surfaces the Camylofin
+  confirmed banned match and the two best cross-retailer savings, so the
+  demo's best material is one click from the homepage.
+- `/composition/[fingerprint]` — the payoff page: resolved composition in
+  plain terms, a banned-FDC notice (confirmed vs. candidate styled and
+  worded differently on purpose), the ranked price table (₹/unit, cheapest
+  row emphasized, source URL + capture time per row), the savings callout
+  with its assumption stated inline, and a persistent safety line. A
+  `review`-status listing that would otherwise be the cheapest is excluded
+  from the headline number and shown separately as pending.
+- `/safety` — all 9 banned-FDC matches (1 confirmed, 8 candidates), grouped
+  by tier, each carrying its notification reference/date/status — the page
+  to screenshot for the submission.
+- `/pipeline` — the 3 heal events, `collector_run` history, `extraction_issue`
+  counts by field/retailer (with the Apollo batch-mode explanation written
+  directly on the page, not just here), and per-retailer coverage.
+- `/review` — the `review`-status listings and pending
+  `molecule_merge_suggestion` rows, each with an approve/reject server
+  action. Approving a match sets `verified`; approving a merge repoints
+  `composition_molecule`/`banned_fdc_molecule` from the losing molecule to
+  the winning one, aliases the losing name, and deletes the losing molecule
+  row inside one transaction (verified directly against the DB: Metoprolol /
+  S-Metoprolol merged cleanly, 8 `composition_molecule` rows repointed). The
+  documented `Glimepiride`/`Glimipride` gap is shown here explicitly rather
+  than hidden.
+
+`/pipeline`, `/review`, and `/safety` are `export const dynamic =
+"force-dynamic"` — without it Next prerenders them as static at build time
+(no dynamic APIs in the render path), which would freeze pipeline/review
+state at the last build. `/` and `/composition/[fingerprint]` render
+dynamically by default (`searchParams`, uncached DB reads per request).
+
+Design: one accent colour, used only for the cheapest-price emphasis and the
+savings number — everything else is a neutral surface/border/muted-text
+scale defined once as CSS custom properties (`app/globals.css`) and
+registered in Tailwind's `@theme inline` block so `bg-surface`,
+`text-muted`, etc. are real utilities, not `[var(--x)]` arbitrary values
+sprinkled through every component. `₹/unit` columns use
+`font-variant-numeric: tabular-nums` (`.tnum`) so digits align down the
+table. No dark-mode toggle (the existing `prefers-color-scheme` support from
+create-next-app's scaffold is kept, since it's free), no animations, no
+separate landing page — `/` is the search.
+
+See `docs/known-gaps.md` for what building this UI surfaced: the real
+cross-retailer composition count (31, not the ~36 estimated in the plan —
+Apollo's reliability issue is the reason), a same-brand-different-pack-size
+display artifact, and why an approved merge suggestion leaves no
+`status = "approved"` row behind.
+
 ## Running it
 
 ```bash
@@ -197,6 +264,7 @@ pnpm parse:substitution
 pnpm banned:ingest
 pnpm merge:suggestions
 pnpm test
+pnpm dev
 ```
 
 Requires a Postgres database (Neon or Supabase) with the `vector` and

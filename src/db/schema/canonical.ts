@@ -13,7 +13,6 @@ import {
   vector,
 } from "drizzle-orm/pg-core";
 
-// A single active ingredient, e.g. "Metformin Hydrochloride".
 export const molecule = pgTable(
   "molecule",
   {
@@ -39,8 +38,8 @@ export const moleculeAlias = pgTable(
   (table) => [uniqueIndex("molecule_alias_normalized_idx").on(table.normalizedAlias)],
 );
 
-// A salt combination + strengths, e.g. "Metformin 500mg + Glimepiride 1mg".
-// fingerprint_hash dedupes regardless of how a retailer formatted the raw string.
+// fingerprint_hash dedupes a composition regardless of how a retailer
+// formatted the raw text.
 export const composition = pgTable(
   "composition",
   {
@@ -49,11 +48,10 @@ export const composition = pgTable(
     normalizedText: text("normalized_text").notNull(),
     dosageForm: varchar("dosage_form", { length: 32 }).notNull(),
     releaseModifier: varchar("release_modifier", { length: 32 }),
-    // sha256 of sorted molecule ids only — no strength, dosage form, or
-    // release modifier. Looser than fingerprint_hash on purpose: banned-FDC
-    // notifications specify molecule sets, not our dosage-form granularity.
+    // Looser than fingerprint_hash on purpose: banned-FDC notifications
+    // specify molecule sets, not dosage-form granularity.
     moleculeSetHash: varchar("molecule_set_hash", { length: 64 }).notNull(),
-    // pgvector embedding of the normalized composition text, for Day 3 fuzzy matching.
+    // Not used on the current match path; reserved for a future fuzzy-similarity feature.
     embedding: vector("embedding", { dimensions: 1536 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -82,7 +80,8 @@ export const compositionMolecule = pgTable(
   ],
 );
 
-// Canonical, retailer-independent product. Unpopulated on Day 1 — listing.brand_product_id stays null until Day 2 matching.
+// Canonical, retailer-independent product. listing.brand_product_id stays
+// null until matching resolves it.
 export const brandProduct = pgTable(
   "brand_product",
   {
@@ -117,9 +116,9 @@ export const compositionParseCache = pgTable("composition_parse_cache", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [uniqueIndex("composition_parse_cache_raw_hash_idx").on(table.rawHash)]);
 
-// A pg_trgm-similarity candidate pair for two molecule rows that look like the
-// same drug spelled differently (typo duplicates, not synonyms — those go
-// through molecule_alias instead). Suggest only, never auto-merge.
+// A pg_trgm-similarity candidate pair for two molecule rows that look like
+// typo duplicates (not synonyms — those go through molecule_alias). Suggest
+// only, never auto-merge.
 export const moleculeMergeSuggestionStatus = ["pending", "approved", "rejected"] as const;
 
 export const moleculeMergeSuggestion = pgTable(

@@ -1,69 +1,105 @@
-import Image from "next/image";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { listSubstitutionGroups, searchProducts } from "../src/queries/substitution";
 
-export default function Home() {
+const QUICK_LINKS = ["Telma AM", "Glycomet", "Camylofin"];
+
+async function SearchResults({ q }: { q: string }) {
+  const results = await searchProducts(q);
+
+  if (results.length === 0) {
+    return (
+      <p className="text-sm text-muted">
+        No matches for &ldquo;{q}&rdquo;. Try a brand name (e.g. &ldquo;Glycomet&rdquo;) or a molecule (e.g. &ldquo;Metformin&rdquo;).
+      </p>
+    );
+  }
+
+  if (results.length === 1) {
+    redirect(`/composition/${results[0].fingerprintHash}`);
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-25"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/6 px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <ul className="flex flex-col divide-y divide-border border-t border-border">
+      {results.map((r) => (
+        <li key={r.fingerprintHash}>
+          <Link href={`/composition/${r.fingerprintHash}`} className="flex items-center justify-between gap-4 py-3 hover:text-accent">
+            <span className="text-sm">{r.normalizedText}</span>
+            <span className="text-xs text-muted">matched &ldquo;{r.matchedOn}&rdquo;</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+async function Featured() {
+  const [camylofin, groups] = await Promise.all([searchProducts("camylofin"), listSubstitutionGroups()]);
+
+  const topSavings = groups
+    .filter((g) => g.savingsPct !== null && g.retailerCount >= 2)
+    .sort((a, b) => (b.savingsPct ?? 0) - (a.savingsPct ?? 0))
+    .slice(0, 2);
+
+  return (
+    <div className="mt-10">
+      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">Worth a look</p>
+      <div className="flex flex-col gap-2">
+        {camylofin[0] ? (
+          <Link
+            href={`/composition/${camylofin[0].fingerprintHash}`}
+            className="rounded-md border border-candidate-border bg-candidate-bg px-4 py-3 text-sm hover:border-accent"
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            <span className="font-medium text-danger-text">Confirmed banned-FDC match</span> — {camylofin[0].normalizedText}
+          </Link>
+        ) : null}
+        {topSavings.map((g) => (
+          <Link
+            key={g.fingerprintHash}
+            href={`/composition/${g.fingerprintHash}`}
+            className="rounded-md border border-border px-4 py-3 text-sm hover:border-accent"
           >
-            Documentation
-          </a>
-        </div>
-      </main>
+            {g.normalizedText} — <span className="tnum font-medium text-accent">{g.savingsPct}% cheaper</span> at the
+            cheapest listed retailer
+          </Link>
+        ))}
+      </div>
     </div>
+  );
+}
+
+export default async function Home({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+  const { q } = await searchParams;
+  const query = q?.trim() ?? "";
+
+  return (
+    <main className="mx-auto w-full max-w-2xl px-6 py-16">
+      <h1 className="text-3xl font-semibold tracking-tight">MedSwitch</h1>
+      <p className="mt-2 text-muted">Compare Indian pharmacy prices for the same composition, across retailers.</p>
+
+      <form action="/" method="GET" className="mt-8 flex gap-2">
+        <input
+          type="text"
+          name="q"
+          defaultValue={query}
+          placeholder="Brand name (Telma AM) or molecule (Metformin)"
+          className="flex-1 rounded-md border border-border bg-surface px-4 py-2.5 text-sm outline-none focus:border-accent"
+          autoFocus
+        />
+        <button type="submit" className="rounded-md bg-foreground px-5 py-2.5 text-sm font-medium text-background">
+          Search
+        </button>
+      </form>
+
+      <div className="mt-3 flex gap-3 text-xs text-muted">
+        {QUICK_LINKS.map((term) => (
+          <Link key={term} href={`/?q=${encodeURIComponent(term)}`} className="hover:text-accent">
+            {term}
+          </Link>
+        ))}
+      </div>
+
+      <div className="mt-8">{query ? <SearchResults q={query} /> : <Featured />}</div>
+    </main>
   );
 }
