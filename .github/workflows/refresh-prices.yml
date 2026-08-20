@@ -1,10 +1,6 @@
 name: Refresh price snapshots
 
-# Cron trigger is commented out on purpose — enabling it means this workflow
-# starts spending Bright Data credits on its own schedule with nobody
-# watching. Uncomment the `schedule:` block below once you've reviewed the
-# cadence and are ready for that. Until then this only runs from the Actions
-# tab (workflow_dispatch), so it's exercised and provable without being live.
+# commented the cron job out for now, to avoid running out of credits
 on:
   workflow_dispatch:
   # schedule:
@@ -16,7 +12,6 @@ jobs:
     strategy:
       matrix:
         retailer: [pharmeasy]
-        # add apollo here once its collector is reliable under batch load — see CLAUDE.md
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

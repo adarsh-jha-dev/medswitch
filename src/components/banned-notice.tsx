@@ -1,5 +1,7 @@
 import type { BannedFdcMatch } from "../queries/banned";
 import { formatDate } from "../lib/format";
+import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
+import { Badge } from "./ui/badge";
 
 export function BannedNotice({ matches }: { matches: BannedFdcMatch[] }) {
   if (matches.length === 0) return null;
@@ -10,13 +12,14 @@ export function BannedNotice({ matches }: { matches: BannedFdcMatch[] }) {
   return (
     <div className="mb-8 flex flex-col gap-3">
       {confirmed.map((m) => (
-        <div key={m.bannedFdcId} className="rounded-md bg-confirmed-bg px-5 py-4 text-confirmed-foreground">
-          <p className="text-sm font-semibold">
-            Prohibited under {m.notificationRef}
+        <Alert key={m.bannedFdcId} className="border-transparent bg-confirmed-bg text-confirmed-foreground">
+          <AlertTitle className="flex items-center gap-2">
+            <Badge className="bg-confirmed-foreground text-confirmed-bg">Prohibited</Badge>
+            {m.notificationRef}
             {m.notificationDate ? `, dated ${formatDate(m.notificationDate)}` : ""}
-          </p>
-          <p className="mt-1 text-sm opacity-90">
-            Notification text: &ldquo;{m.rawText}&rdquo; — status: {m.status.replace("_", " ")}.
+          </AlertTitle>
+          <AlertDescription className="text-confirmed-foreground/80">
+            &ldquo;{m.rawText}&rdquo; — status: {m.status.replace("_", " ")}.
             {m.sourceUrl ? (
               <>
                 {" "}
@@ -26,18 +29,23 @@ export function BannedNotice({ matches }: { matches: BannedFdcMatch[] }) {
                 .
               </>
             ) : null}
-          </p>
-        </div>
+          </AlertDescription>
+        </Alert>
       ))}
       {candidates.map((m) => (
-        <div key={m.bannedFdcId} className="rounded-md border border-candidate-border bg-candidate-bg px-5 py-4">
-          <p className="text-sm font-medium text-danger-text">
-            Same molecule combination as banned item {m.notificationRef}
-            {m.notificationDate ? ` (${formatDate(m.notificationDate)})` : ""}; strengths differ from the prohibited
-            formulation, so this is not a confirmed match.
-          </p>
-          <p className="mt-1 text-sm text-muted">Prohibited formulation: &ldquo;{m.rawText}&rdquo;.</p>
-        </div>
+        <Alert key={m.bannedFdcId} className="border-candidate-border bg-candidate-bg">
+          <AlertTitle className="flex items-center gap-2 text-danger-text">
+            <Badge variant="outline" className="border-danger-text/30 text-danger-text">
+              Candidate
+            </Badge>
+            Same molecule combination as {m.notificationRef}
+            {m.notificationDate ? ` (${formatDate(m.notificationDate)})` : ""}
+          </AlertTitle>
+          <AlertDescription>
+            Strengths differ from the prohibited formulation (&ldquo;{m.rawText}&rdquo;), so this is not a confirmed
+            match.
+          </AlertDescription>
+        </Alert>
       ))}
     </div>
   );

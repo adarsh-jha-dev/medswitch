@@ -5,6 +5,7 @@ import { BannedNotice } from "../../../src/components/banned-notice";
 import { PriceTable } from "../../../src/components/price-table";
 import { SafetyLine } from "../../../src/components/safety-line";
 import { SavingsCallout } from "../../../src/components/savings-callout";
+import { Badge } from "../../../src/components/ui/badge";
 import { formatStrength } from "../../../src/lib/format";
 
 export default async function CompositionPage({ params }: { params: Promise<{ fingerprint: string }> }) {
@@ -16,17 +17,17 @@ export default async function CompositionPage({ params }: { params: Promise<{ fi
   const savings = computeSavings(group.ranked);
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-6 py-10">
-      <p className="text-xs uppercase tracking-wide text-muted">
+    <main className="mx-auto my-10 w-full max-w-4xl rounded-2xl border border-border bg-surface px-6 py-10 shadow-sm sm:px-10">
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">
         {group.dosageForm}
         {group.releaseModifier ? `, ${group.releaseModifier}` : ""}
       </p>
       <h1 className="mt-1 text-2xl font-semibold tracking-tight">{group.normalizedText}</h1>
       <div className="mt-3 mb-8 flex flex-wrap gap-2">
         {group.molecules.map((m) => (
-          <span key={m.name} className="rounded-full border border-border px-3 py-1 text-xs text-muted">
+          <Badge key={m.name} variant="outline" className="text-muted-foreground">
             {m.name} {formatStrength(m.strengthValue, m.strengthUnit)}
-          </span>
+          </Badge>
         ))}
       </div>
 

@@ -26,7 +26,7 @@ export function Nav() {
               <Link
                 key={link.href}
                 href={link.href}
-                className={active ? "font-medium text-foreground" : "text-muted hover:text-foreground"}
+                className={active ? "font-medium text-foreground" : "text-muted-foreground hover:text-foreground"}
               >
                 {link.label}
               </Link>
