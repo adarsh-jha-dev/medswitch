@@ -64,9 +64,11 @@ export default async function LandingPage() {
               Compare prices <ArrowRight className="size-4" />
             </Link>
           </Button>
-          <Button asChild variant="outline" size="lg" className="h-11 px-6">
-            <Link href="/ask">Ask MedSwitch</Link>
-          </Button>
+          {process.env.NEXT_PUBLIC_SHOW_LLM_FEATURES === "true" && (
+            <Button asChild variant="outline" size="lg" className="h-11 px-6">
+              <Link href="/ask">Ask MedSwitch</Link>
+            </Button>
+          )}
         </div>
       </section>
 
