@@ -4,10 +4,7 @@ import { db } from "../src/db";
 import { healEvent, retailer } from "../src/db/schema";
 import { COLLECTOR_IDS } from "../src/ingest/collector-ids";
 
-// The two Bright Data heals documented in CLAUDE.md for the Jan Aushadhi
-// collector, backfilled as real heal_event rows now that the table exists.
-// (CLAUDE.md's "two heals after pnpm parse" are LLM-parsing bugs, not
-// `scraper heal` calls, so they don't belong here.)
+// The two Bright Data heals documented in CLAUDE.md for the Jan Aushadhi collector, backfilled as real heal_event rows.
 const EVENTS = [
   {
     fieldName: null,

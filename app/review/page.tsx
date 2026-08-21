@@ -4,8 +4,7 @@ import { Badge } from "../../src/components/ui/badge";
 import { Button } from "../../src/components/ui/button";
 import { Card, CardContent } from "../../src/components/ui/card";
 
-// The queue can grow from a backend pnpm parse re-run, not only from actions
-// on this page.
+// The queue can grow from a backend pnpm parse re-run, not only from actions on this page.
 export const dynamic = "force-dynamic";
 
 function ActionButtons({ approve, reject }: { approve: () => Promise<void>; reject: () => Promise<void> }) {

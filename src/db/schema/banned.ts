@@ -1,9 +1,7 @@
 import { index, integer, numeric, pgTable, serial, text, timestamp, uniqueIndex, varchar, vector } from "drizzle-orm/pg-core";
 import { molecule } from "./canonical";
 
-// Not a boolean: the 2016 S.O. 814(E) tranche was quashed by the Delhi HC in
-// 2019 with CDSCO's appeal still pending, so "banned" can be legally false
-// for a notification that still reads as banned elsewhere.
+// Not a boolean: the 2016 S.O. 814(E) tranche was quashed by the Delhi HC in 2019, appeal still pending.
 export const bannedFdcStatus = ["prohibited", "unapproved", "revoked", "sub_judice"] as const;
 
 export const bannedFdc = pgTable(
@@ -24,9 +22,7 @@ export const bannedFdc = pgTable(
   (table) => [index("banned_fdc_molecule_set_hash_idx").on(table.moleculeSetHash)],
 );
 
-// Null strength_mg means the notification bans the molecule set
-// irrespective of strength — a molecule_set_hash match is already a
-// candidate; matching strengths here promotes it to confirmed.
+// Null strength_mg means the notification bans the molecule set regardless of strength.
 export const bannedFdcMolecule = pgTable(
   "banned_fdc_molecule",
   {

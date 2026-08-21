@@ -72,10 +72,7 @@ async function ingestSinglePhase(runner: RetailerRunner, retailerId: number, pin
 
 async function ingestRefreshOnly(runner: RetailerRunner, retailerId: number, pincode: string) {
   if (runner.singlePhase) {
-    // Jan Aushadhi's product page IS the search results — expandSinglePhase
-    // already re-derives everything fresh each run, and PMBI's list is a
-    // fixed nationwide MRP cap that rarely moves, so a separate refresh mode
-    // adds nothing here.
+    // singlePhase runners already re-derive everything fresh each run — a separate refresh mode adds nothing.
     throw new Error(`${runner.retailerSlug} is singlePhase — refresh-only isn't meaningful, just run without --refresh-only`);
   }
   const existing = await db
@@ -108,8 +105,7 @@ async function main() {
   if (!retailerRow) throw new Error(`retailer '${runner.retailerSlug}' not seeded — run pnpm db:seed first`);
 
   if (refreshOnly) {
-    // No discovery — re-scrape listings we already have so price_point picks
-    // up drift without spending discovery-collector credits on a schedule.
+    // No discovery — re-scrape known listings so price_point picks up drift without spending discovery credits.
     await ingestRefreshOnly(runner, retailerRow.id, pincode);
   } else if (runner.singlePhase) {
     console.log(`[${runner.retailerSlug}] single-phase ingest (discovery rows are product rows)...`);

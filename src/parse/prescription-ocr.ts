@@ -36,8 +36,6 @@ function getClient(): OpenAI {
   return client;
 }
 
-// Image is passed through in memory only (base64 data URL) — never written
-// to disk or the database, and discarded once this call returns.
 export async function extractPrescriptionItems(imageDataUrl: string): Promise<ExtractedPrescriptionItem[]> {
   const response = await getClient().chat.completions.create({
     model: MODEL,

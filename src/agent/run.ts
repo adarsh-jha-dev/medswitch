@@ -2,8 +2,6 @@ import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { executeTool, TOOL_DEFINITIONS } from "./tools";
 
-// Deliberately the cheap chat model — same choice as src/parse/llm.ts. This
-// agent's job is constrained tool orchestration, not open-ended reasoning.
 const MODEL = process.env.OPENAI_AGENT_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
 const MAX_ITERATIONS = 5;
 
@@ -15,8 +13,13 @@ export interface AgentMessage {
 export type AgentEvent =
   | { type: "tool_call"; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; name: string; result: unknown }
-  | { type: "text"; text: string }
+  | { type: "text_delta"; delta: string }
   | { type: "error"; message: string };
+
+export interface CompositionSeed {
+  fingerprint: string;
+  normalizedText: string;
+}
 
 let client: OpenAI | null = null;
 function getClient(): OpenAI {
@@ -24,12 +27,57 @@ function getClient(): OpenAI {
   return client;
 }
 
-// Non-streaming under the hood (tool-calling turns can't stream usefully
-// anyway) but events are emitted as they happen, so a caller can render
-// "find_substitutes fired, then check_banned, then the answer" as it unfolds.
-export interface CompositionSeed {
-  fingerprint: string;
-  normalizedText: string;
+interface StreamedToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+interface StreamedTurn {
+  content: string;
+  toolCalls: StreamedToolCall[];
+}
+
+// Tool-call arguments arrive as JSON fragments, not natural language, so only content deltas stream live.
+async function streamOneTurn(
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+  onDelta: (delta: string) => void,
+): Promise<StreamedTurn> {
+  const stream = await getClient().chat.completions.create({
+    model: MODEL,
+    messages,
+    tools: TOOL_DEFINITIONS,
+    tool_choice: "auto",
+    stream: true,
+  });
+
+  let content = "";
+  const toolCallsByIndex = new Map<number, StreamedToolCall>();
+
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta;
+    if (!delta) continue;
+
+    if (delta.content) {
+      content += delta.content;
+      onDelta(delta.content);
+    }
+
+    for (const tc of delta.tool_calls ?? []) {
+      const existing = toolCallsByIndex.get(tc.index);
+      if (existing) {
+        if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+      } else {
+        toolCallsByIndex.set(tc.index, {
+          id: tc.id ?? "",
+          name: tc.function?.name ?? "",
+          arguments: tc.function?.arguments ?? "",
+        });
+      }
+    }
+  }
+
+  return { content, toolCalls: [...toolCallsByIndex.values()] };
 }
 
 export async function runAgentTurn(
@@ -51,59 +99,52 @@ export async function runAgentTurn(
   messages.push({ role: "user", content: seededMessage });
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    let response: OpenAI.Chat.Completions.ChatCompletion;
+    let turn: StreamedTurn;
     try {
-      response = await getClient().chat.completions.create({
-        model: MODEL,
-        messages,
-        tools: TOOL_DEFINITIONS,
-        tool_choice: "auto",
-      });
+      turn = await streamOneTurn(messages, (delta) => onEvent({ type: "text_delta", delta }));
     } catch (err) {
       const message = err instanceof Error ? err.message : "The assistant is unavailable right now.";
       onEvent({ type: "error", message });
       return "Sorry, something went wrong answering that. Please try again.";
     }
 
-    const choice = response.choices[0];
-    const msg = choice?.message;
-    if (!msg) {
-      const fallback = "Sorry, something went wrong answering that. Please try again.";
-      onEvent({ type: "text", text: fallback });
-      return fallback;
-    }
+    if (turn.toolCalls.length > 0) {
+      messages.push({
+        role: "assistant",
+        content: turn.content || null,
+        tool_calls: turn.toolCalls.map((tc) => ({
+          id: tc.id,
+          type: "function",
+          function: { name: tc.name, arguments: tc.arguments },
+        })),
+      });
 
-    if (msg.tool_calls && msg.tool_calls.length > 0) {
-      messages.push(msg);
-      for (const call of msg.tool_calls) {
-        if (call.type !== "function") continue;
+      for (const call of turn.toolCalls) {
         let args: Record<string, unknown> = {};
         try {
-          args = JSON.parse(call.function.arguments || "{}");
+          args = JSON.parse(call.arguments || "{}");
         } catch {
           args = {};
         }
-        onEvent({ type: "tool_call", name: call.function.name, args });
+        onEvent({ type: "tool_call", name: call.name, args });
 
         let result: unknown;
         try {
-          result = await executeTool(call.function.name, args);
+          result = await executeTool(call.name, args);
         } catch (err) {
           result = { error: err instanceof Error ? err.message : "Tool execution failed." };
         }
-        onEvent({ type: "tool_result", name: call.function.name, result });
+        onEvent({ type: "tool_result", name: call.name, result });
 
         messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
       }
       continue;
     }
 
-    const text = msg.content ?? "";
-    onEvent({ type: "text", text });
-    return text;
+    return turn.content;
   }
 
   const fallback = "I wasn't able to resolve this within my tool budget — please rephrase, or ask your pharmacist directly.";
-  onEvent({ type: "text", text: fallback });
+  onEvent({ type: "text_delta", delta: fallback });
   return fallback;
 }

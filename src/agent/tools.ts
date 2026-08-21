@@ -3,10 +3,8 @@ import { z } from "zod";
 import { bannedMatchesByCompositionId, searchBannedNotifications } from "../queries/banned";
 import { resolveSubstitutionGroup, getSubstitutionGroup } from "../queries/substitution";
 
-// Three constrained functions, not SQL access: the agent physically cannot
-// cross a composition boundary (different strength/salt/dosage form) or
-// invent a price, because these are the only ways it can touch the DB.
-
+// Constrained functions, not SQL access: these are the agent's only way to touch the DB, so it physically
+// cannot cross a composition boundary (different strength/salt/dosage form) or invent a price.
 export const TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",

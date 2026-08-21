@@ -7,9 +7,7 @@ import { parseBannedFdcComponents } from "../src/parse/banned-fdc-parse";
 import { moleculeSetHash } from "../src/parse/fingerprint";
 import { resolveMolecule } from "../src/parse/resolve";
 
-// Idempotent: re-running re-derives molecule_set_hash and re-links
-// banned_fdc_molecule rows without duplicating banned_fdc rows
-// (upserted on notification_ref).
+// Idempotent: re-running re-derives molecule_set_hash without duplicating banned_fdc rows (upserted on notification_ref).
 async function main() {
   let inserted = 0;
   let updated = 0;

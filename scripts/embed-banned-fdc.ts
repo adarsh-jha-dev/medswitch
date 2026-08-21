@@ -4,8 +4,7 @@ import { db } from "../src/db";
 import { bannedFdc } from "../src/db/schema";
 import { embedBatch } from "../src/parse/embed";
 
-// One row per notification, text is short — no chunking needed. Re-running
-// re-embeds everything (idempotent, cheap: 156 rows in one batched call).
+// One row per notification, no chunking needed — re-running re-embeds all 156 rows in one batched call.
 async function main() {
   const rows = await db.select({ id: bannedFdc.id, rawText: bannedFdc.rawText }).from(bannedFdc);
   if (rows.length === 0) {

@@ -26,8 +26,7 @@ interface ScanResponse {
   combinedAnnualSaving: number;
 }
 
-// Downscales client-side before it ever leaves the browser — keeps the
-// upload small and the vision call cheap.
+// Downscales client-side before it ever leaves the browser — keeps the upload small and the vision call cheap.
 function fileToResizedDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();

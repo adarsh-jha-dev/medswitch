@@ -38,8 +38,7 @@ export const extractionIssue = pgTable(
   (table) => [index("extraction_issue_field_name_idx").on(table.fieldName)],
 );
 
-// A `scraper heal` call against a Bright Data collector, with before/after
-// row counts as evidence it worked.
+// A `scraper heal` call against a Bright Data collector, with before/after row counts as evidence it worked.
 export const healEvent = pgTable(
   "heal_event",
   {

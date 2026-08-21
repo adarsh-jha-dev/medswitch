@@ -26,12 +26,8 @@ export async function rejectMerge(suggestionId: number) {
   revalidatePath("/review");
 }
 
-// Repoints composition_molecule/banned_fdc_molecule from B to A (both
-// onDelete "restrict", so B can't be deleted while they still reference it),
-// aliases B's name to A, then deletes B. Deleting B cascades away this
-// suggestion row (molecule_merge_suggestion is onDelete "cascade") and any
-// other pending suggestion naming B — so there's no row left to mark
-// status="approved" on. That's the schema's cascade, not a bug here.
+// Repoints composition_molecule/banned_fdc_molecule from B to A, aliases B's name to A, then deletes B — which
+// cascades away this suggestion row itself (see docs/known-gaps.md #3: no "approved" row survives, by schema design).
 export async function approveMerge(suggestionId: number) {
   await db.transaction(async (tx) => {
     const [suggestion] = await tx

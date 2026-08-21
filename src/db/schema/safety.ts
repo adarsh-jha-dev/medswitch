@@ -3,8 +3,7 @@ import { composition } from "./canonical";
 
 export const safetyChunkSections = ["uses", "side_effects", "warnings", "storage"] as const;
 
-// One canonical safety text per composition, not per listing — far fewer
-// embedding calls, and retrieval stays scoped by composition_id.
+// One canonical safety text per composition, not per listing.
 export const safetyChunk = pgTable(
   "safety_chunk",
   {

@@ -3,14 +3,10 @@ import { sql } from "drizzle-orm";
 import { db } from "../src/db";
 import { moleculeMergeSuggestion } from "../src/db/schema";
 
-// 0.85 caught none of the real typo duplicates (they score 0.75-0.81); 0.7
-// catches those with margin but still misses short-word transpositions like
-// "Glimepiride"/"Glimipride" (0.4375) — a threshold low enough to catch that
-// pulls in clearly-different drugs as noise, so it stays a known gap.
+// 0.85 caught none of the real typo duplicates (they score 0.75-0.81); 0.7 catches most, see README for the gap.
 const SIMILARITY_THRESHOLD = 0.7;
 
-// pg_trgm, not embeddings — embeddings could just as easily merge two
-// different drugs. Suggest only, never auto-merge.
+// pg_trgm, not embeddings — embeddings could just as easily merge two different drugs. Suggest only, never auto-merge.
 async function main() {
   const pairs = await db.execute<{ a_id: number; b_id: number; sim: number }>(sql`
     SELECT a.id AS a_id, b.id AS b_id, similarity(a.normalized_name, b.normalized_name) AS sim

@@ -9,8 +9,7 @@ const RETAILERS = [
   {
     name: "Jan Aushadhi",
     slug: "janaushadhi",
-    // Public price list actually lives on the legacy PMBI site, not
-    // janaushadhi.gov.in (a client-only SPA) — see docs/targets.md.
+    // Public price list lives on the legacy PMBI site, not the JS-only janaushadhi.gov.in — see docs/targets.md.
     baseUrl: "https://www.pmbi.co.in",
   },
   {

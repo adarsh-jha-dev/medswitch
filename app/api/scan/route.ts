@@ -1,8 +1,7 @@
 import { computeSavings, resolveSubstitutionGroup } from "../../../src/queries/substitution";
 import { extractPrescriptionItems } from "../../../src/parse/prescription-ocr";
 
-// Uses the postgres.js driver (via the query layer), so this needs the
-// Node runtime, not edge.
+// Uses the postgres.js driver (via the query layer), so this needs the Node runtime, not edge.
 export const runtime = "nodejs";
 
 interface ScanRequestBody {
@@ -22,8 +21,7 @@ export async function POST(req: Request) {
     return new Response(JSON.stringify({ error: "imageDataUrl must be a data:image/* URL." }), { status: 400 });
   }
 
-  // The image lives only in this request's memory — extracted here, then
-  // discarded; nothing about it is written to disk or the database.
+  // The image lives only in this request's memory — never written to disk or the database.
   const extracted = await extractPrescriptionItems(imageDataUrl);
 
   const items = await Promise.all(

@@ -1,7 +1,6 @@
 import { runAgentTurn, type AgentEvent, type AgentMessage, type CompositionSeed } from "../../../src/agent/run";
 
-// Uses the postgres.js driver (via the query layer), so this needs the
-// Node runtime, not edge.
+// Uses the postgres.js driver (via the query layer), so this needs the Node runtime, not edge.
 export const runtime = "nodejs";
 
 interface AgentRequestBody {
