@@ -5,8 +5,7 @@ import type { DiscoveredUrl, ExtractedProduct, RetailerRunner } from "./types";
 // Real data source is the legacy pmbi.co.in/ProductList.aspx search page, not
 // janaushadhi.gov.in (a JS-only SPA with no server-rendered data) — see
 // docs/targets.md. One search returns every matching row directly, so
-// discovery IS the product data (singlePhase). Collector creation/heal
-// commands pinned in CLAUDE.md.
+// discovery IS the product data (singlePhase).
 export const janaushadhiRunner: RetailerRunner = {
   retailerSlug: "janaushadhi",
   retailerName: "Jan Aushadhi",

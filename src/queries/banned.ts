@@ -13,9 +13,7 @@ export interface NotificationSearchResult {
   sourceUrl: string | null;
 }
 
-// pgvector cosine distance over banned_fdc.embedding — regulatory notification
-// text only, never safety/clinical text (that corpus was deliberately never
-// built; see README).
+// pgvector cosine distance over banned_fdc.embedding — regulatory text only, never safety/clinical text.
 export async function searchBannedNotifications(query: string, limit = 5): Promise<NotificationSearchResult[]> {
   const embedding = await embedText(query);
   const vectorLiteral = `[${embedding.join(",")}]`;

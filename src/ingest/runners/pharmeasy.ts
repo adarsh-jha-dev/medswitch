@@ -2,7 +2,6 @@ import { COLLECTOR_IDS } from "../collector-ids";
 import { dedupeRepeatedHalf, pickBoolean, pickNumber, pickString } from "../normalize";
 import type { DiscoveredUrl, ExtractedProduct, RetailerRunner } from "./types";
 
-// Collector creation/heal commands pinned in CLAUDE.md.
 export const pharmeasyRunner: RetailerRunner = {
   retailerSlug: "pharmeasy",
   retailerName: "PharmEasy",
@@ -10,9 +9,7 @@ export const pharmeasyRunner: RetailerRunner = {
   productCollectorId: COLLECTOR_IDS.pharmeasyProduct,
   discoveryCollectorId: COLLECTOR_IDS.pharmeasyDiscovery,
 
-  // Base + combination molecule pages for the 3 target categories — each
-  // only lists ~5 branded medicines with no crawlable pagination, so combo
-  // pages are what gets discovery volume up.
+  // Base pages only list ~5 branded medicines with no crawlable pagination, so combo pages carry discovery volume.
   discoveryUrls() {
     return [
       "https://pharmeasy.in/molecules/amlodipine-7868",

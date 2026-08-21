@@ -1,10 +1,8 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 
-// Two-tier join: molecule_set_hash equality is a candidate; promoted to
-// confirmed only when the notification states strengths and every one
-// matches a composition_molecule row exactly. A notification that never
-// states a strength stays a candidate forever.
+// molecule_set_hash equality is a candidate; promoted to confirmed only when
+// every stated strength matches a composition_molecule row exactly.
 export interface BannedFdcMatch {
   compositionId: number;
   compositionText: string;

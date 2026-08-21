@@ -22,7 +22,6 @@ async function fetchWithBackoff(url: string, init: RequestInit, maxAttempts = 5)
   }
 }
 
-// Triggers a job, then polls /dca/dataset until a finished (non-empty array) snapshot or timeout.
 export async function runCollector(collectorId: string, urls: string[]): Promise<unknown[]> {
   const token = apiToken();
 

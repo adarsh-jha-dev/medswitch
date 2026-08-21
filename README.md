@@ -93,8 +93,8 @@ Apollo Pharmacy 31). 368 have `raw_composition_text` and are resolved: 311
 `auto`, 57 `review`, 0 genuinely `unmatched` (the 30 `unmatched` in
 `match_status` are all Apollo listings still missing composition text — see
 below, not a matching failure). 36 composition groups have listings from 2+
-retailers, unchanged from Day 2 — Apollo hasn't contributed a confirmed
-cross-retailer match yet because of the reliability issue below.
+retailers — Apollo hasn't contributed a confirmed cross-retailer match yet
+because of the reliability issue below.
 `pnpm parse:substitution` prints the cross-retailer price comparisons, for
 example:
 
@@ -158,7 +158,7 @@ left as candidates, not confirmed, since the strengths genuinely differ.
 
 `heal_event` (`pnpm heal:log`) logs every Bright Data `scraper heal` call
 going forward, with real before/after row counts — 3 logged so far (2 from
-Day 1 Jan Aushadhi fixes, 1 from the Apollo product collector). `pnpm
+early Jan Aushadhi fixes, 1 from the Apollo product collector). `pnpm
 merge:suggestions` runs `pg_trgm` similarity over molecule names and writes
 candidates for human review, never auto-merging — 8 pending. The plan's
 suggested 0.85 similarity threshold caught none of the real typo duplicates
@@ -190,12 +190,12 @@ over side-effect and warning text pushes MedSwitch from price transparency
 into medical information: an agent that can retrieve that text will get
 asked "should I take this instead?" and will have material to answer with,
 which is exactly the line this project stays behind. `banned_fdc.rawText`
-(the 156 CDSCO gazette notifications, already in the DB from Day 3) is
-embedded instead — `embedding vector(1536)` on `banned_fdc`, backfilled with
-`pnpm banned:embed`. It's genuinely unstructured text and on-brand: "why is
-this combination flagged?" is a question worth answering well; "what are
-the side effects" is one worth declining. Same pgvector capability, correct
-scope, no new collector.
+(the 156 CDSCO gazette notifications, already in the DB from the banned-FDC
+ingest above) is embedded instead — `embedding vector(1536)` on
+`banned_fdc`, backfilled with `pnpm banned:embed`. It's genuinely
+unstructured text and on-brand: "why is this combination flagged?" is a
+question worth answering well; "what are the side effects" is one worth
+declining. Same pgvector capability, correct scope, no new collector.
 
 ### Tools, not text-to-SQL
 
@@ -254,8 +254,8 @@ Every OpenAI call in this project — parsing (`llm.ts`), embeddings
 (`embed.ts`), the agent (`run.ts`), and prescription vision
 (`prescription-ocr.ts`) — uses `gpt-4o-mini` and `text-embedding-3-small`
 specifically, not the larger/pricier models in the same families. This was
-already true from Day 2 for parsing; Day 5 kept the same tier for chat and
-vision rather than reaching for a stronger model, since none of these tasks
+already true for parsing; the agent and vision calls kept the same tier
+rather than reaching for a stronger model, since none of these tasks
 (constrained tool orchestration, structured extraction) need it.
 
 ### Cut: MCP server
@@ -275,10 +275,10 @@ ones: substring search picks the first ILIKE match, not the best-ranked one
 (a scanned "Glycomet 500mg" can resolve to an unrelated combination
 product), and a full composition string can't be used as a `find_substitutes`
 query since it's longer than any single brand/molecule field it's matched
-against. Both logged in `docs/known-gaps.md` (Day 5 section) rather than
-patched today — the agent's own guardrails already handle the failure mode
-honestly (it states the mismatch rather than hiding it), which is the
-correct behavior even before the underlying ranking is fixed.
+against. Both logged in `docs/known-gaps.md` rather than patched now — the
+agent's own guardrails already handle the failure mode honestly (it states
+the mismatch rather than hiding it), which is the correct behavior even
+before the underlying ranking is fixed.
 
 ## Running it
 

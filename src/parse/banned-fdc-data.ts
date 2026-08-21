@@ -1,10 +1,7 @@
-// The August 2024 CDSCO tranche: 156 fixed-dose combinations prohibited under
-// section 26A of the Drugs and Cosmetics Act, 1940, gazetted as S.O.3285(E)
-// through S.O.3440(E), all dated 12.08.2024. Transcribed verbatim from the
-// Ministry of Health & Family Welfare gazette notification, cross-checked
-// against CDSCO's own Gazette Notifications index (source: cdsco.gov.in).
-// 2024 tranche only — earlier (2016, 2018) and later (2025) notifications
-// are not included.
+// The August 2024 CDSCO tranche: 156 FDCs prohibited under section 26A of
+// the Drugs and Cosmetics Act, 1940, S.O.3285(E) through S.O.3440(E), dated
+// 12.08.2024. Transcribed verbatim from the MoHFW gazette notification.
+// This tranche only — earlier (2016, 2018) and later (2025) are not included.
 export interface BannedFdcRow {
   sn: number;
   rawText: string;

@@ -5,16 +5,14 @@ import type { DiscoveredUrl, ExtractedProduct, RetailerRunner } from "./types";
 // Same 6 seed molecules as PharmEasy/Jan Aushadhi, not new ones — breadth of
 // retailers per composition matters more than breadth of compositions. URL
 // scheme: apollopharmacy.in/salt/<slug>, either lowercase-hyphenated or
-// UPPERCASE+plus-joined (both resolve). Collector ids pinned in CLAUDE.md.
+// UPPERCASE+plus-joined (both resolve).
 export const apolloRunner: RetailerRunner = {
   retailerSlug: "apollo",
   retailerName: "Apollo Pharmacy",
   baseUrl: "https://www.apollopharmacy.in",
   productCollectorId: COLLECTOR_IDS.apolloProduct,
   discoveryCollectorId: COLLECTOR_IDS.apolloDiscovery,
-  // Batched calls return a row per URL, but extracted fields come back null
-  // under concurrent load (verified on both collectors); single-URL calls
-  // are reliable. Slower, but it's what actually works against this site.
+  // Batched calls return fields as null under concurrent load; single-URL calls are reliable, if slower.
   discoveryChunkSize: 1,
   productChunkSize: 1,
 

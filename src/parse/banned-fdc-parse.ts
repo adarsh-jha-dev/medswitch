@@ -1,10 +1,5 @@
-// Best-effort component extraction from CDSCO's free-text FDC descriptions
-// ("Aceclofenac 50mg + Paracetamol 125mg tablet", "Erythromycin stearate eq.
-// to Erythromycin + Lactic acid Bacillus"). Most of the 156 items list
-// vitamins/excipients/enzymes that are never going to appear in our tracked
-// molecule set, so imprecise parsing on those has no effect on matching —
-// this only needs to be reliable for the handful of items that share
-// molecules with our seed list.
+// Best-effort component extraction from CDSCO's free-text FDC descriptions —
+// only needs to be reliable for items that share molecules with our seed list.
 const TRAILING_DOSAGE_FORM = new RegExp(
   "\\s*(oral liquid|eye ointment|eye drops?|topical spray|injection|tablets?|capsules?|ointment|solution|suspension|syrup|cream|gel|lotion|soap|spray)\\s*$",
   "i",

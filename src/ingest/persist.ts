@@ -30,7 +30,6 @@ const ALL_FIELDS: Array<keyof ExtractedProduct> = [
   "inStock",
 ];
 
-// Single transaction per batch so a mid-batch crash doesn't leave half-written state.
 export async function persistProductBatch(params: {
   runId: number;
   retailerId: number;

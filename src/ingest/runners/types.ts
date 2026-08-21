@@ -27,10 +27,7 @@ export interface RetailerRunner {
   // normalizeProduct.
   singlePhase?: boolean;
 
-  // Batch calls (many URLs in one Bright Data job) are unreliable against
-  // some sites — extracted fields come back null under concurrent load even
-  // though the same URL succeeds alone. Set to 1 to force one call per URL.
-  // Defaults to chunks of 50 (discovery) / BATCH_SIZE (product).
+  // Some sites return null fields under batched concurrent load; set to 1 to force one call per URL.
   discoveryChunkSize?: number;
   productChunkSize?: number;
 

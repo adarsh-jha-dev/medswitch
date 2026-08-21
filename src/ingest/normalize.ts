@@ -1,6 +1,4 @@
-// Bright Data's extraction JSON keys drift between collector versions, so
-// these try a list of plausible spellings (dot-path for nesting, e.g. "input.url").
-
+// Bright Data's extraction JSON keys drift between collector versions, so these try a list of plausible spellings.
 function getPath(raw: unknown, path: string): unknown {
   if (typeof raw !== "object" || raw === null) return undefined;
   return path.split(".").reduce<unknown>((acc, segment) => {

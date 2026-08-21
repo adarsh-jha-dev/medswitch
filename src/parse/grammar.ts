@@ -1,7 +1,6 @@
 import type { ParsedComponent } from "./types";
 import { toCanonical } from "./units";
 
-// "Name(value Unit)" joined by "+", e.g. "Telmisartan(40.0 Mg)+Amlodipine(5.0 Mg)".
 // Unit alternation is longest-first so "mg/5ml" doesn't get cut short by "mg".
 const COMPONENT =
   /([A-Za-z0-9\s/\-]+?)\s*\(\s*([\d.]+)\s*(mg\/5?ml|%w\/w|mcg|mg|g|ml|iu|%)\s*\)/gi;
