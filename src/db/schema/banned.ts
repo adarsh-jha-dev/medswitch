@@ -1,4 +1,4 @@
-import { index, integer, numeric, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { index, integer, numeric, pgTable, serial, text, timestamp, uniqueIndex, varchar, vector } from "drizzle-orm/pg-core";
 import { molecule } from "./canonical";
 
 // Not a boolean: the 2016 S.O. 814(E) tranche was quashed by the Delhi HC in
@@ -18,6 +18,8 @@ export const bannedFdc = pgTable(
     status: varchar("status", { length: 16, enum: bannedFdcStatus }).notNull(),
     sourceUrl: text("source_url"),
     ingestedAt: timestamp("ingested_at", { withTimezone: true }).defaultNow().notNull(),
+    // rawText is short, one notification per row — embedded directly, no chunking.
+    embedding: vector("embedding", { dimensions: 1536 }),
   },
   (table) => [index("banned_fdc_molecule_set_hash_idx").on(table.moleculeSetHash)],
 );

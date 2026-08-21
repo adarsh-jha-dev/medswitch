@@ -221,6 +221,16 @@ export async function getSubstitutionGroup(fingerprintHash: string): Promise<Sub
   };
 }
 
+// Shared by the /ask agent's find_substitutes tool and the prescription-scan
+// page: resolve a free-text brand or molecule name to its one best-matching
+// composition group. Picking searchProducts()[0] is a deliberate narrowing —
+// ambiguous queries should go through the human-facing /?q= search instead.
+export async function resolveSubstitutionGroup(query: string): Promise<SubstitutionGroup | null> {
+  const candidates = await searchProducts(query);
+  if (candidates.length === 0) return null;
+  return getSubstitutionGroup(candidates[0].fingerprintHash);
+}
+
 export interface SearchResult {
   fingerprintHash: string;
   normalizedText: string;

@@ -131,3 +131,69 @@ The GitHub Actions cron for scheduled refreshes
 enabling it means the workflow starts spending Bright Data credits on its own
 with nobody watching. Uncomment it deliberately, not as a side effect of
 touching the file.
+
+## Day 5 — agent (`/ask`, `/scan`), banned-FDC embeddings
+
+`safety_chunk` stays empty **on purpose**, permanently, not just deferred —
+building a safety-text collector and retrieving over uses/side-effects/
+warnings would push MedSwitch into giving medical information, which is the
+line this project stays behind. `banned_fdc.rawText` (156 CDSCO gazette
+notifications, already in the DB from Day 3) got `embedding vector(1536)`
+instead — one embedding per row, no chunking needed, backfilled via `pnpm
+banned:embed` (`scripts/embed-banned-fdc.ts`). If asked to "add the safety
+corpus" later, that's a deliberate reversal of a Day 5 decision, not a gap —
+confirm with the user before building it.
+
+**Every OpenAI model used across this repo — parsing, embeddings, the
+agent, and prescription-photo vision — is the cheap tier**: `gpt-4o-mini`
+(chat + vision, `OPENAI_MODEL` / `OPENAI_AGENT_MODEL` / `OPENAI_VISION_MODEL`,
+all default to `gpt-4o-mini`) and `text-embedding-3-small`. Don't upgrade
+any of these to a larger model (`gpt-4o`, `gpt-4-turbo`, `o1`, etc.) without
+asking first — this was an explicit user constraint for Day 5, not just an
+existing default worth preserving.
+
+The agent (`src/agent/`) gets exactly three tools
+(`find_substitutes`, `check_banned`, `search_notifications`,
+`src/agent/tools.ts`) wrapping `src/queries/` — **no raw SQL access**, so it
+physically cannot cross a composition boundary or invent a price. Two real
+bugs found only by testing the actual HTTP surface (direct function calls in
+isolation didn't catch either — worth remembering for any future agent
+work here):
+
+1. `find_substitutes`'s `brandOrMolecule` param is a substring ILIKE search
+   (via `resolveSubstitutionGroup()` → `searchProducts()`), so passing a
+   full composition string (`"Telmisartan 40mg + Amlodipine 5mg (tablet)"`)
+   as the query can never match — it's longer than any single brand/molecule
+   field. Fixed by giving `find_substitutes` (and `check_banned`, which
+   already took one) an optional `compositionFingerprint` param for exact
+   lookups, and having `/ask?fingerprint=...` seed the model with both the
+   fingerprint and the human-readable composition text.
+2. Before that fix, a fingerprint-only seed message caused the model to pass
+   the raw fingerprint hash itself as `brandOrMolecule` (its only string to
+   work with), which silently found nothing. Root cause was the same as #1;
+   noted separately because it's the symptom that surfaced it.
+
+Both `find_substitutes` and the `/scan` resolver share
+`resolveSubstitutionGroup()` = `searchProducts()[0]` — first ILIKE match,
+not best-ranked. This pre-existing gap (not introduced today) is now
+user-visible through the agent: e.g. a scanned "Glycomet 500mg" resolved to
+an unrelated combination product whose brand name happened to contain
+"Glycomet" as a substring. The agent's guardrails handled it honestly (it
+stated the mismatch rather than hiding it) — logged in `docs/known-gaps.md`
+(Day 5 section) rather than fixed, since a real fix touches the
+human-facing `/` search too.
+
+`src/agent/__tests__/refusal.test.ts` (`pnpm test:agent`, run separately
+from `pnpm test` since it hits the live OpenAI API and DB) is the adversarial
+eval — 13 prompts, asserting refusal/scoping behavior, not exact wording.
+**13/13 passing.** Two early failures were bad regexes in the test itself,
+not agent misbehavior (the model correctly said "could not find" — test
+expected "couldn't find"; the model correctly deferred with "I recommend
+discussing this with your doctor" — test's `/i recommend/` regex was too
+broad and caught its own deferral phrasing). Worth checking the assertion
+before assuming a red refusal-eval test means the agent regressed.
+
+MCP server (the plan's Step 6) was **cut, not built** — first in the plan's
+own explicit cut order, even though it would've been cheap (the tools
+already exist). Don't build it without asking first; if asked to add it
+later, it's new scope, not a gap being closed.

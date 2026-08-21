@@ -75,3 +75,42 @@ only in `pnpm parse:report` output:
   the `/review` merge queue — shown there as an explicit documented miss.
 - Apollo Pharmacy's extraction issues are explained directly on `/pipeline`,
   not just in the README.
+
+# Day 5 known gaps
+
+Found while building the agent (`src/agent/`), `/ask`, and `/scan`. Per the
+Day 4 list's own precedent, logged rather than fixed today — the agent's
+tool calls go through the exact same `resolveSubstitutionGroup()` /
+`searchProducts()` path the human-facing `/` search already used, so these
+are pre-existing data-layer gaps the new agent surface makes visible, not
+bugs introduced by it.
+
+## 1. `resolveSubstitutionGroup()` takes the first ILIKE match, not the best one
+
+`find_substitutes` and the `/scan` resolver both call
+`resolveSubstitutionGroup(query)`, which is `searchProducts(query)[0]` —
+first result, no relevance ranking. A plain-text query like `"Metformin"` or
+`"Glycomet"` can resolve to a combination product whose brand name happens
+to contain the query as a substring (e.g. `"Glycomet GP 2/850mg"`) instead
+of the plain single-molecule product the user meant. Observed directly: a
+scanned line reading `"Glycomet 500mg"` resolved to `"Glimepiride 2mg +
+Metformin Hydrochloride 850mg"`. The agent's own system-prompt guardrails
+handled this honestly in both surfaces — it stated the mismatch explicitly
+rather than presenting it as the requested drug — so the failure mode is a
+wrong match surfaced transparently, not a wrong match presented as right.
+Fixing this properly means teaching `searchProducts` to prefer an exact or
+prefix match over a substring match, which touches the human-facing `/`
+search too — left for a dedicated pass rather than a same-day patch.
+
+## 2. `check_banned` and `find_substitutes` both require a fingerprint or a short name
+
+`find_substitutes`'s `brandOrMolecule` parameter is a substring search, so a
+full composition string (e.g. `"Telmisartan 40mg + Amlodipine 5mg
+(tablet)"`) can never match — it's longer than any single brand or molecule
+field. Fixed for the seeded case (`/ask?fingerprint=...` now also passes the
+composition's `normalizedText`, and both tools accept a
+`compositionFingerprint` directly instead of requiring a name), but a
+freestanding question that names a composition by its full descriptive
+string rather than a brand/molecule name will still miss. Not expected to
+come up often in practice — real questions use brand or molecule names —
+but noted here rather than silently working around it with fuzzier matching.

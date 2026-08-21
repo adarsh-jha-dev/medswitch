@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { bannedMatchesByCompositionId } from "../../../src/queries/banned";
 import { computeSavings, getSubstitutionGroup } from "../../../src/queries/substitution";
@@ -6,6 +7,7 @@ import { PriceTable } from "../../../src/components/price-table";
 import { SafetyLine } from "../../../src/components/safety-line";
 import { SavingsCallout } from "../../../src/components/savings-callout";
 import { Badge } from "../../../src/components/ui/badge";
+import { Button } from "../../../src/components/ui/button";
 import { formatStrength } from "../../../src/lib/format";
 
 export default async function CompositionPage({ params }: { params: Promise<{ fingerprint: string }> }) {
@@ -36,6 +38,12 @@ export default async function CompositionPage({ params }: { params: Promise<{ fi
       {savings ? <SavingsCallout savings={savings} /> : null}
 
       <PriceTable ranked={group.ranked} pendingReview={group.pendingReview} />
+
+      <div className="mt-6 mb-8">
+        <Button asChild variant="outline" size="sm">
+          <Link href={`/ask?fingerprint=${group.fingerprintHash}`}>Ask about this composition</Link>
+        </Button>
+      </div>
 
       <SafetyLine />
     </main>

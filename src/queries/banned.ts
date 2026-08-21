@@ -1,8 +1,47 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db";
+import { embedText } from "../parse/embed";
 import { findBannedFdcMatches, type BannedFdcMatch } from "../parse/banned-match";
 
 export { findBannedFdcMatches, type BannedFdcMatch };
+
+export interface NotificationSearchResult {
+  notificationRef: string;
+  notificationDate: string | null;
+  status: string;
+  rawText: string;
+  sourceUrl: string | null;
+}
+
+// pgvector cosine distance over banned_fdc.embedding — regulatory notification
+// text only, never safety/clinical text (that corpus was deliberately never
+// built; see README).
+export async function searchBannedNotifications(query: string, limit = 5): Promise<NotificationSearchResult[]> {
+  const embedding = await embedText(query);
+  const vectorLiteral = `[${embedding.join(",")}]`;
+
+  const rows = await db.execute<{
+    notification_ref: string;
+    notification_date: string | null;
+    status: string;
+    raw_text: string;
+    source_url: string | null;
+  }>(sql`
+    SELECT notification_ref, notification_date, status, raw_text, source_url
+    FROM banned_fdc
+    WHERE embedding IS NOT NULL
+    ORDER BY embedding <=> ${vectorLiteral}::vector
+    LIMIT ${limit}
+  `);
+
+  return rows.map((r) => ({
+    notificationRef: r.notification_ref,
+    notificationDate: r.notification_date,
+    status: r.status,
+    rawText: r.raw_text,
+    sourceUrl: r.source_url,
+  }));
+}
 
 export async function bannedMatchesByCompositionId(compositionId: number): Promise<BannedFdcMatch[]> {
   const all = await findBannedFdcMatches();

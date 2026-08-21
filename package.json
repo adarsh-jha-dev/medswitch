@@ -11,13 +11,15 @@
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx scripts/seed.ts",
     "ingest": "tsx scripts/ingest.ts",
-    "test": "vitest run",
+    "test": "vitest run --exclude \"src/agent/**\"",
     "parse": "tsx scripts/parse.ts",
     "parse:report": "tsx scripts/parse-report.ts",
     "parse:substitution": "tsx scripts/substitution-query.ts",
     "heal:log": "tsx scripts/heal-log.ts",
     "merge:suggestions": "tsx scripts/merge-suggestions.ts",
-    "banned:ingest": "tsx scripts/banned-fdc-ingest.ts"
+    "banned:ingest": "tsx scripts/banned-fdc-ingest.ts",
+    "banned:embed": "tsx scripts/embed-banned-fdc.ts",
+    "test:agent": "vitest run src/agent/__tests__"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

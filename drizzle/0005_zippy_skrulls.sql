@@ -1,0 +1,1 @@
+ALTER TABLE "banned_fdc" ADD COLUMN "embedding" vector(1536);

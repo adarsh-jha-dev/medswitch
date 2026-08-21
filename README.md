@@ -21,13 +21,13 @@ Postgres tables (`src/db/schema/`) in five groups:
   `molecule_merge_suggestion`
 - marketplace: `retailer`, `listing`, `price_point`, `raw_document`
 - ops: `collector_run`, `extraction_issue`, `heal_event`
-- banned: `banned_fdc`, `banned_fdc_molecule`
+- banned: `banned_fdc` (including `embedding`), `banned_fdc_molecule`
 - safety: `safety_chunk`
 
 `pgvector` is enabled on `composition.embedding` for a possible future
 fuzzy-similarity suggestion feature; it isn't used on the current match path.
-`safety_chunk.embedding` is populated once a safety-text collector exists
-(not yet built — see Day 3 cut list below).
+`safety_chunk` stays empty on purpose — see "Agent" below for why it was
+deliberately never built, and what got embedded instead.
 
 ## Ingestion
 
@@ -180,6 +180,106 @@ turned on. `price_point` is append-on-change by design: if a scheduled run
 finds no price movement, that's a working change-detector reporting nothing
 changed, not a broken pipeline — don't manufacture history to fill a chart.
 
+## Agent (`/ask`, `/scan`)
+
+### Scope decision: regulatory retrieval, not safety-text retrieval
+
+`safety_chunk` (uses/side-effects/warnings) was cut, not just deferred — the
+collector for it was never built, and it stays empty on purpose. Retrieval
+over side-effect and warning text pushes MedSwitch from price transparency
+into medical information: an agent that can retrieve that text will get
+asked "should I take this instead?" and will have material to answer with,
+which is exactly the line this project stays behind. `banned_fdc.rawText`
+(the 156 CDSCO gazette notifications, already in the DB from Day 3) is
+embedded instead — `embedding vector(1536)` on `banned_fdc`, backfilled with
+`pnpm banned:embed`. It's genuinely unstructured text and on-brand: "why is
+this combination flagged?" is a question worth answering well; "what are
+the side effects" is one worth declining. Same pgvector capability, correct
+scope, no new collector.
+
+### Tools, not text-to-SQL
+
+The agent (`src/agent/`) never gets raw SQL access. It has exactly three
+tools (`src/agent/tools.ts`), each a thin wrapper over `src/queries/`:
+
+- `find_substitutes` — resolve a brand/molecule name (or a known
+  `compositionFingerprint`) to ranked cross-retailer listings for that exact
+  composition. Every listing carries `sourceUrl` and `capturedAt`.
+- `check_banned` — look up a composition's banned-FDC tier: `confirmed`,
+  `candidate`, or `none`, with the notification reference and status.
+- `search_notifications` — pgvector similarity search over
+  `banned_fdc.embedding`, for "why is X regulated" questions.
+
+Because these are the only DB access points, the agent physically cannot
+cross a composition boundary (recommend a different strength/salt/dosage
+form) or invent a price — the guardrail lives in the query layer, not just
+the prompt. `src/agent/run.ts` runs a bounded tool loop (max 5 iterations)
+against `gpt-4o-mini`, and `app/api/agent/route.ts` streams each tool call,
+tool result, and the final answer as they happen (NDJSON) so the UI
+(`src/components/agent-chat.tsx`, `/ask`) can render "find_substitutes
+fired, then check_banned, then the answer assembled" instead of a bare chat
+bubble.
+
+### Guardrails and the refusal eval
+
+The system prompt (`src/agent/system-prompt.ts`) draws hard boundaries:
+compare composition and price only; never recommend a different strength,
+salt, or dosage form; never answer dosage/interaction/"should I switch"
+questions; always defer clinical judgment to a doctor or pharmacist; cite
+`sourceUrl` and `capturedAt` on every price; never call a `candidate`
+banned-FDC match "banned". `src/agent/__tests__/refusal.test.ts`
+(`pnpm test:agent`, kept separate from `pnpm test` since it hits the live
+OpenAI API and DB) asserts these behaviorally across 13 adversarial and
+legitimate prompts — strength-splitting questions, generic-equivalence
+verdicts, "what should I take instead" after a banned-drug question, a
+direct prompt-injection attempt, elderly/pediatric dosing, candidate-vs-
+confirmed wording, drug interactions, and honest "not found" vs.
+fabrication. **13/13 passing.**
+
+### Prescription scan (`/scan`)
+
+Upload a photo → `gpt-4o-mini` vision call extracts brand names and
+strengths as a Zod-validated list (`src/parse/prescription-ocr.ts`) → each
+line resolves to a composition via the same query layer the agent uses →
+renders a substitution table per item with a combined annual saving. The
+image is downscaled client-side, sent once as a data URL, processed only in
+that request's memory, and never written to disk or the database — stated
+directly in the page. Low-confidence extractions still show the verbatim
+`rawText` reading so the user can correct it via a normal search, rather
+than silently committing to a guessed brand.
+
+### Model choice: cheap tier throughout
+
+Every OpenAI call in this project — parsing (`llm.ts`), embeddings
+(`embed.ts`), the agent (`run.ts`), and prescription vision
+(`prescription-ocr.ts`) — uses `gpt-4o-mini` and `text-embedding-3-small`
+specifically, not the larger/pricier models in the same families. This was
+already true from Day 2 for parsing; Day 5 kept the same tier for chat and
+vision rather than reaching for a stronger model, since none of these tasks
+(constrained tool orchestration, structured extraction) need it.
+
+### Cut: MCP server
+
+The plan's Step 6 (an MCP server exposing the same three tools) was cut
+first, per its own explicit cut order (`MCP → prescription photo → chat UI
+polish`, `never cut` the refusal eval) — it's the least load-bearing piece
+today, even though it would have been cheap to add since the tools already
+exist. Not built.
+
+### Known gaps surfaced by the agent
+
+Both `/ask` and `/scan` call the exact same `resolveSubstitutionGroup()` /
+`searchProducts()` path the human-facing `/` search already used, so the
+agent surfaced two pre-existing data-layer gaps rather than introducing new
+ones: substring search picks the first ILIKE match, not the best-ranked one
+(a scanned "Glycomet 500mg" can resolve to an unrelated combination
+product), and a full composition string can't be used as a `find_substitutes`
+query since it's longer than any single brand/molecule field it's matched
+against. Both logged in `docs/known-gaps.md` (Day 5 section) rather than
+patched today — the agent's own guardrails already handle the failure mode
+honestly (it states the mismatch rather than hiding it), which is the
+correct behavior even before the underlying ranking is fixed.
+
 ## Running it
 
 ```bash
@@ -195,8 +295,10 @@ pnpm parse
 pnpm parse:report
 pnpm parse:substitution
 pnpm banned:ingest
+pnpm banned:embed
 pnpm merge:suggestions
 pnpm test
+pnpm test:agent
 pnpm dev
 ```
 
