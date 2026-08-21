@@ -4,12 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const LINKS = [
-  { href: "/", label: "Search" },
-  { href: "/ask", label: "Ask" },
-  { href: "/scan", label: "Scan" },
-  { href: "/safety", label: "Safety" },
-  { href: "/pipeline", label: "Pipeline" },
-  { href: "/review", label: "Review" },
+  { href: "/", label: "Search", show: true },
+  { href: "/ask", label: "Ask", show: process.env.NEXT_PUBLIC_SHOW_LLM_FEATURES === "true" },
+  { href: "/scan", label: "Scan", show: process.env.NEXT_PUBLIC_SHOW_LLM_FEATURES === "true" },
+  { href: "/safety", label: "Safety", show: true },
+  { href: "/pipeline", label: "Pipeline", show: true },
+  { href: "/review", label: "Review", show: true },
 ] as const;
 
 export function Nav() {
@@ -25,13 +25,15 @@ export function Nav() {
           {LINKS.map((link) => {
             const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
             return (
-              <Link
+              link.show && (
+                <Link
                 key={link.href}
                 href={link.href}
                 className={active ? "font-medium text-foreground" : "text-muted-foreground hover:text-foreground"}
               >
                 {link.label}
               </Link>
+              )
             );
           })}
         </nav>
