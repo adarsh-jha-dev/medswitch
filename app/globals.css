@@ -116,22 +116,24 @@
   }
 }
 
-* {
-  border-color: var(--border);
-}
+@layer base {
+  * {
+    border-color: var(--border);
+  }
 
-body {
-  background: var(--background);
-  background-image: radial-gradient(60% 40% at 50% 0%, color-mix(in srgb, var(--brand) 6%, transparent), transparent 70%);
-  background-attachment: fixed;
-  color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  body {
+    background: var(--background);
+    background-image: radial-gradient(60% 40% at 50% 0%, color-mix(in srgb, var(--brand) 6%, transparent), transparent 70%);
+    background-attachment: fixed;
+    color: var(--foreground);
+    font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  }
+
+  a {
+    color: inherit;
+  }
 }
 
 .tnum {
   font-variant-numeric: tabular-nums;
-}
-
-a {
-  color: inherit;
 }

@@ -1,115 +1,116 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { listSubstitutionGroups, searchProducts } from "../src/queries/substitution";
-import { Badge } from "../src/components/ui/badge";
+import { ArrowRight, MessageCircle, ScanLine, Search, ShieldCheck } from "lucide-react";
+import { getLandingStats } from "../src/queries/landing";
 import { Button } from "../src/components/ui/button";
 import { Card, CardContent } from "../src/components/ui/card";
-import { Input } from "../src/components/ui/input";
 
-const QUICK_LINKS = ["Telma AM", "Glycomet", "Camylofin"];
+export const dynamic = "force-dynamic";
 
-async function SearchResults({ q }: { q: string }) {
-  const results = await searchProducts(q);
+const FEATURES = [
+  {
+    href: "/search",
+    icon: Search,
+    title: "Search",
+    description: "Look up a brand or molecule and see ranked prices across retailers.",
+  },
+  {
+    href: "/ask",
+    icon: MessageCircle,
+    title: "Ask",
+    description: "A scoped assistant for price and banned-FDC questions — never dosage advice.",
+  },
+  {
+    href: "/scan",
+    icon: ScanLine,
+    title: "Scan",
+    description: "Photograph a prescription and get a substitution table with combined savings.",
+  },
+  {
+    href: "/safety",
+    icon: ShieldCheck,
+    title: "Safety",
+    description: "Every composition checked against the CDSCO banned fixed-dose combination list.",
+  },
+] as const;
 
-  if (results.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No matches for &ldquo;{q}&rdquo;. Try a brand name (e.g. &ldquo;Glycomet&rdquo;) or a molecule (e.g. &ldquo;Metformin&rdquo;).
-      </p>
-    );
-  }
-
-  if (results.length === 1) {
-    redirect(`/composition/${results[0].fingerprintHash}`);
-  }
-
+function StatTile({ value, label }: { value: string; label: string }) {
   return (
-    <div className="flex flex-col gap-2">
-      {results.map((r) => (
-        <Link key={r.fingerprintHash} href={`/composition/${r.fingerprintHash}`}>
-          <Card className="bg-muted/40 transition-colors hover:border-brand/40">
-            <CardContent className="flex items-center justify-between gap-4">
-              <span className="text-sm">{r.normalizedText}</span>
-              <Badge variant="outline">{r.matchedOn}</Badge>
-            </CardContent>
-          </Card>
-        </Link>
-      ))}
+    <div className="flex flex-col items-center gap-1 px-5 py-2 text-center">
+      <p className="tnum text-2xl font-semibold tracking-tight">{value}</p>
+      <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   );
 }
 
-async function Featured() {
-  const [camylofin, groups] = await Promise.all([searchProducts("camylofin"), listSubstitutionGroups()]);
-
-  const topSavings = groups
-    .filter((g) => g.savingsPct !== null && g.retailerCount >= 2)
-    .sort((a, b) => (b.savingsPct ?? 0) - (a.savingsPct ?? 0))
-    .slice(0, 2);
+export default async function LandingPage() {
+  const stats = await getLandingStats();
 
   return (
-    <div className="mt-10">
-      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Worth a look</p>
-      <div className="flex flex-col gap-2">
-        {camylofin[0] ? (
-          <Link href={`/composition/${camylofin[0].fingerprintHash}`}>
-            <Card className="border-candidate-border bg-candidate-bg transition-colors hover:border-brand/50">
-              <CardContent className="text-sm">
-                <Badge variant="outline" className="mb-1.5 border-danger-text/30 text-danger-text">
-                  Confirmed banned-FDC match
-                </Badge>
-                <p>{camylofin[0].normalizedText}</p>
+    <main className="mx-auto w-full max-w-5xl px-6">
+      <section className="flex flex-col items-center gap-6 py-24 text-center sm:py-28">
+        <p className="text-xs font-medium tracking-[0.2em] text-muted-foreground uppercase">
+          Price transparency for Indian pharmacies
+        </p>
+        <h1 className="max-w-2xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
+          The same medicine, compared honestly across retailers.
+        </h1>
+        <p className="max-w-xl text-balance text-muted-foreground sm:text-lg">
+          MedSwitch matches the exact composition — same molecules, same strength, same dosage form — and ranks real
+          prices per unit, with every number traceable to its source and capture date.
+        </p>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
+          <Button asChild size="lg" className="h-11 px-6">
+            <Link href="/search">
+              Compare prices <ArrowRight className="size-4" />
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="lg" className="h-11 px-6">
+            <Link href="/ask">Ask MedSwitch</Link>
+          </Button>
+        </div>
+      </section>
+
+      <section className="flex flex-wrap items-center justify-center gap-x-2 gap-y-4 border-y border-border py-8">
+        <StatTile value={stats.totalListings.toLocaleString("en-IN")} label="listings tracked" />
+        <StatTile value={String(stats.retailerCount)} label="retailers compared" />
+        <StatTile value={String(stats.crossRetailerGroups)} label="cross-retailer matches" />
+        <StatTile value={String(stats.confirmedBanned)} label="confirmed banned-FDC hits" />
+      </section>
+
+      {stats.topSaving ? (
+        <section className="py-16">
+          <Link href={`/composition/${stats.topSaving.fingerprintHash}`}>
+            <Card className="bg-brand-tint transition-colors hover:border-brand/40">
+              <CardContent className="flex flex-col items-center gap-3 py-8 text-center sm:flex-row sm:justify-between sm:text-left">
+                <div>
+                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Real example</p>
+                  <p className="mt-1 text-lg font-medium">{stats.topSaving.normalizedText}</p>
+                </div>
+                <p className="tnum text-3xl font-semibold text-brand">{stats.topSaving.savingsPct}% cheaper</p>
               </CardContent>
             </Card>
           </Link>
-        ) : null}
-        {topSavings.map((g) => (
-          <Link key={g.fingerprintHash} href={`/composition/${g.fingerprintHash}`}>
-            <Card className="transition-colors hover:border-brand/40">
-              <CardContent className="text-sm">
-                {g.normalizedText} — <span className="tnum font-medium text-brand">{g.savingsPct}% cheaper</span> at the
-                cheapest listed retailer
+        </section>
+      ) : null}
+
+      <section className="grid grid-cols-1 gap-4 py-16 sm:grid-cols-2 lg:grid-cols-4">
+        {FEATURES.map((f) => (
+          <Link key={f.href} href={f.href}>
+            <Card className="h-full transition-colors hover:border-brand/40">
+              <CardContent className="flex flex-col gap-3">
+                <f.icon className="size-5 text-brand" />
+                <p className="font-medium">{f.title}</p>
+                <p className="text-sm text-muted-foreground">{f.description}</p>
               </CardContent>
             </Card>
           </Link>
         ))}
-      </div>
-    </div>
-  );
-}
+      </section>
 
-export default async function Home({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
-  const { q } = await searchParams;
-  const query = q?.trim() ?? "";
-
-  return (
-    <main className="mx-auto my-10 w-full max-w-2xl rounded-2xl border border-border bg-surface px-6 py-12 shadow-sm sm:px-10 sm:py-14">
-      <h1 className="text-3xl font-semibold tracking-tight">MedSwitch</h1>
-      <p className="mt-2 text-muted-foreground">Compare Indian pharmacy prices for the same composition, across retailers.</p>
-
-      <form action="/" method="GET" className="mt-8 flex gap-2">
-        <Input
-          type="text"
-          name="q"
-          defaultValue={query}
-          placeholder="Brand name (Telma AM) or molecule (Metformin)"
-          className="h-10 px-4 text-sm"
-          autoFocus
-        />
-        <Button type="submit" size="lg" className="h-10">
-          Search
-        </Button>
-      </form>
-
-      <div className="mt-3 flex gap-3 text-xs text-muted-foreground">
-        {QUICK_LINKS.map((term) => (
-          <Link key={term} href={`/?q=${encodeURIComponent(term)}`} className="hover:text-brand">
-            {term}
-          </Link>
-        ))}
-      </div>
-
-      <div className="mt-8">{query ? <SearchResults q={query} /> : <Featured />}</div>
+      <footer className="border-t border-border py-8 text-center text-xs text-muted-foreground">
+        Substitution is a decision for your doctor or pharmacist. MedSwitch compares composition and price, not
+        clinical suitability.
+      </footer>
     </main>
   );
 }
