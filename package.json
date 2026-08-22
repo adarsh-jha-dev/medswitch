@@ -9,6 +9,7 @@
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "setup:demo": "tsx scripts/setup-demo.ts",
     "db:seed": "tsx scripts/seed.ts",
     "ingest": "tsx scripts/ingest.ts",
     "test": "vitest run --exclude \"src/agent/**\"",

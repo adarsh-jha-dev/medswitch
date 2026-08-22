@@ -85,22 +85,29 @@ tool calls go through the exact same `resolveSubstitutionGroup()` /
 are pre-existing data-layer gaps the new agent surface makes visible, not
 bugs introduced by it.
 
-## 1. `resolveSubstitutionGroup()` takes the first ILIKE match, not the best one
+## 1. `resolveSubstitutionGroup()` takes the first ILIKE match, not the best one — FIXED
 
 `find_substitutes` and the `/scan` resolver both call
-`resolveSubstitutionGroup(query)`, which is `searchProducts(query)[0]` —
+`resolveSubstitutionGroup(query)`, which was `searchProducts(query)[0]` —
 first result, no relevance ranking. A plain-text query like `"Metformin"` or
-`"Glycomet"` can resolve to a combination product whose brand name happens
+`"Glycomet"` could resolve to a combination product whose brand name happens
 to contain the query as a substring (e.g. `"Glycomet GP 2/850mg"`) instead
 of the plain single-molecule product the user meant. Observed directly: a
 scanned line reading `"Glycomet 500mg"` resolved to `"Glimepiride 2mg +
 Metformin Hydrochloride 850mg"`. The agent's own system-prompt guardrails
 handled this honestly in both surfaces — it stated the mismatch explicitly
-rather than presenting it as the requested drug — so the failure mode is a
+rather than presenting it as the requested drug — so the failure mode was a
 wrong match surfaced transparently, not a wrong match presented as right.
-Fixing this properly means teaching `searchProducts` to prefer an exact or
-prefix match over a substring match, which touches the human-facing `/`
-search too — left for a dedicated pass rather than a same-day patch.
+
+**Fixed**: `searchProducts()` now ranks every candidate (`rankSearchCandidates()`
+in `src/queries/substitution.ts`) instead of returning DB row order — exact
+normalized match beats prefix beats substring; within a tier, a
+single-molecule composition beats a combination, then cross-retailer price
+coverage, then name length break remaining ties. Also widened the pre-rank
+candidate fetch from 20 to 200 rows, since the old cap could truncate the
+best match out of an arbitrarily-ordered result set before ranking ever saw
+it. `"Glycomet"` and `"Metformin"` now resolve to the plain single-molecule
+product; regression test in `src/queries/__tests__/substitution.test.ts`.
 
 ## 2. `check_banned` and `find_substitutes` both require a fingerprint or a short name
 

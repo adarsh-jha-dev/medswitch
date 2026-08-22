@@ -3,6 +3,9 @@
 Compares Indian pharmacy prices and compositions across retailers, so a
 patient on a chronic medication can see a cheaper equivalent.
 
+See [`docs/known-gaps.md`](docs/known-gaps.md) for what's still open and why
+— logged deliberately rather than hidden.
+
 ## What it does
 
 Ingests product listings from two retailers, parses each retailer's raw
@@ -271,16 +274,42 @@ exist. Not built.
 Both `/ask` and `/scan` call the exact same `resolveSubstitutionGroup()` /
 `searchProducts()` path the human-facing `/` search already used, so the
 agent surfaced two pre-existing data-layer gaps rather than introducing new
-ones: substring search picks the first ILIKE match, not the best-ranked one
-(a scanned "Glycomet 500mg" can resolve to an unrelated combination
-product), and a full composition string can't be used as a `find_substitutes`
-query since it's longer than any single brand/molecule field it's matched
-against. Both logged in `docs/known-gaps.md` rather than patched now — the
-agent's own guardrails already handle the failure mode honestly (it states
-the mismatch rather than hiding it), which is the correct behavior even
-before the underlying ranking is fixed.
+ones. The first — substring search picking the first ILIKE match instead of
+the best-ranked one (a scanned "Glycomet 500mg" resolving to an unrelated
+combination product) — is now fixed: `searchProducts()` ranks candidates by
+match tier, single-molecule-over-combination, and price-comparison coverage
+instead of taking DB row order. The second — a full composition string can't
+be used as a `find_substitutes` query since it's longer than any single
+brand/molecule field it's matched against — is still open. See
+[`docs/known-gaps.md`](docs/known-gaps.md) for the full writeup of both,
+including what stayed a same-day fix vs. what didn't and why. The agent's own
+guardrails handled the first gap honestly even before it was fixed — stating
+the mismatch rather than hiding it — which is the correct behavior regardless
+of the underlying ranking bug.
 
 ## Running it
+
+### Quick path: seeded demo data, no Bright Data account
+
+```bash
+pnpm install
+cp .env.example .env   # fill in DATABASE_URL (and OPENAI_API_KEY to use /ask, /scan)
+pnpm setup:demo
+pnpm dev
+```
+
+`pnpm setup:demo` (`scripts/setup-demo.ts`) migrates the schema, then loads
+[`docs/demo-fixture.sql`](docs/demo-fixture.sql) — a real snapshot of the
+parsed database (369 listings, 249 compositions, all 156 CDSCO banned-FDC
+notifications with embeddings, the confirmed Camylofin match, 3 heal_events),
+not synthetic placeholder data. It's a no-op if `composition` already has
+rows, so it's safe to run against a database you're reusing. Needs a Postgres
+database (Neon or Supabase) with the `vector` and `pg_trgm` extensions
+enabled — no Bright Data account or OpenAI key required to browse `/`,
+`/search`, `/pipeline`, `/review`, and `/safety`; `/ask` and `/scan` need
+`OPENAI_API_KEY`.
+
+### Full pipeline: real scrapes through a live Bright Data account
 
 ```bash
 pnpm install

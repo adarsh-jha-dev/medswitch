@@ -4,6 +4,9 @@ import { composition } from "./canonical";
 export const safetyChunkSections = ["uses", "side_effects", "warnings", "storage"] as const;
 
 // One canonical safety text per composition, not per listing.
+// Deliberately unpopulated, permanently — see README ("Scope decision:
+// regulatory retrieval, not safety-text retrieval") for why this table
+// exists but is never written to.
 export const safetyChunk = pgTable(
   "safety_chunk",
   {
