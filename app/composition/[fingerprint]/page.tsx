@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { bannedMatchesByCompositionId } from "../../../src/queries/banned";
 import { computeSavings, getSubstitutionGroup } from "../../../src/queries/substitution";
 import { BannedNotice } from "../../../src/components/banned-notice";
+import { CopyLinkButton } from "../../../src/components/copy-link-button";
 import { PriceTable } from "../../../src/components/price-table";
 import { SafetyLine } from "../../../src/components/safety-line";
 import { SavingsCallout } from "../../../src/components/savings-callout";
@@ -20,10 +21,13 @@ export default async function CompositionPage({ params }: { params: Promise<{ fi
 
   return (
     <main className="mx-auto my-10 w-full max-w-4xl rounded-2xl border border-border bg-surface px-6 py-10 shadow-sm sm:px-10">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">
-        {group.dosageForm}
-        {group.releaseModifier ? `, ${group.releaseModifier}` : ""}
-      </p>
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+          {group.dosageForm}
+          {group.releaseModifier ? `, ${group.releaseModifier}` : ""}
+        </p>
+        <CopyLinkButton />
+      </div>
       <h1 className="mt-1 text-2xl font-semibold tracking-tight">{group.normalizedText}</h1>
       <div className="mt-3 mb-8 flex flex-wrap gap-2">
         {group.molecules.map((m) => (
