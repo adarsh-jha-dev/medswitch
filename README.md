@@ -3,17 +3,15 @@
 Compares Indian pharmacy prices and compositions across retailers, so a
 patient on a chronic medication can see a cheaper equivalent.
 
-See [`docs/known-gaps.md`](docs/known-gaps.md) for what's still open and why
-— logged deliberately rather than hidden.
-
 ## What it does
 
-Ingests product listings from two retailers, parses each retailer's raw
+Ingests product listings from multiple retailers, parses each retailer's raw
 composition text into structured molecule, strength, dosage form, and
-release modifier, resolves molecules across retailers (handling synonyms
-and salt-form differences), and matches equivalent products by a
-composition fingerprint. A substitution query then compares real
-price-per-unit across retailers for the same drug.
+release modifier, resolves molecules across retailers (handling synonyms and
+salt-form differences), and matches equivalent products by a composition
+fingerprint. A substitution query then compares real price-per-unit across
+retailers for the same drug, and every scraped composition is checked
+against the CDSCO list of banned fixed-dose combinations.
 
 ## Schema
 
@@ -24,292 +22,91 @@ Postgres tables (`src/db/schema/`) in five groups:
   `molecule_merge_suggestion`
 - marketplace: `retailer`, `listing`, `price_point`, `raw_document`
 - ops: `collector_run`, `extraction_issue`, `heal_event`
-- banned: `banned_fdc` (including `embedding`), `banned_fdc_molecule`
-- safety: `safety_chunk`
-
-`pgvector` is enabled on `composition.embedding` for a possible future
-fuzzy-similarity suggestion feature; it isn't used on the current match path.
-`safety_chunk` stays empty on purpose — see "Agent" below for why it was
-deliberately never built, and what got embedded instead.
+- banned: `banned_fdc` (with an embedding for semantic search),
+  `banned_fdc_molecule`
+- safety: `safety_chunk` — reserved but intentionally unpopulated; see
+  "Agent" below.
 
 ## Ingestion
 
 `src/ingest/`, `scripts/ingest.ts`: a Bright Data trigger/poll client, a
-transactional batch writer, and one runner file per retailer behind a shared
-`RetailerRunner` interface. See `docs/targets.md` for retailer vetting notes
-(robots.txt compliance, page structure).
+transactional batch writer, and one runner per retailer behind a shared
+`RetailerRunner` interface. Three retailers are wired up (PharmEasy, Jan
+Aushadhi via `pmbi.co.in`, Apollo Pharmacy); Apollo's extraction is
+noticeably less reliable under Bright Data's batch mode, likely anti-bot
+rate-limiting rather than a collector bug — every gap is logged as an
+`extraction_issue` row rather than silently dropped.
 
-- PharmEasy: 153 listings from product and molecule-page discovery
-- Jan Aushadhi (via the public data source `pmbi.co.in`, not the JS-only
-  `janaushadhi.gov.in` portal): 214 listings from a 6-term search
-- Apollo Pharmacy: 31 listings discovered from `/salt/<slug>` pages, but only
-  1 has usable field data as of this writing — see "Apollo Pharmacy
-  reliability" below before trusting this number to grow on its own.
-
-`pnpm ingest --retailer=<slug> --refresh-only` re-scrapes listings already in
-the DB (no discovery) so `price_point` can pick up drift on a schedule
-without spending discovery-collector credits — see Scheduled refresh below.
+`pnpm ingest --retailer=<slug> --refresh-only` re-scrapes listings already
+in the DB so `price_point` can pick up price drift over time without
+spending discovery credits.
 
 ## Parsing and matching
 
-Two parsers (`src/parse/`), matched to the grammar each retailer actually uses:
+Two parsers (`src/parse/`), matched to the grammar each retailer actually
+uses: a single regex for PharmEasy's rigidly structured strings, an LLM
+parser (OpenAI, batched, Zod-validated) for Jan Aushadhi's free text, cached
+by hash so a re-run only pays for genuinely new strings. About 40% of rows
+parse deterministically with zero LLM calls.
 
-- PharmEasy's composition strings are rigidly structured
-  (`Name(value Unit)+Name(value Unit)`) and parse with a single regex
-  (`grammar.ts`), with a coverage check that falls back to the LLM rather
-  than risk a silent partial parse.
-- Jan Aushadhi's are free text, with the dose, dosage form, and release
-  modifier all embedded inline, so those go to an LLM parser (`llm.ts`,
-  OpenAI, batched, structured JSON, Zod-validated per item), cached by hash
-  of the raw string in `composition_parse_cache` so a re-run only pays for
-  genuinely new strings.
-
-155/367 rows (42%) parse deterministically with zero LLM calls.
-
-Molecule resolution (`resolve.ts`, `alias-seed.ts`) tries, in order: exact
-match, alias table, salt-suffix stripping, then auto-creates a new molecule
-as a last resort. Punctuation is stripped during normalization (not just
-whitespace) so spelling variants collapse to one molecule instead of several.
-
-Salt-mismatch rule: when one side of a match states a salt form and the
-other doesn't (PharmEasy's bare `Diclofenac` vs Jan Aushadhi's `Diclofenac
-Sodium`), the match is allowed but capped at `match_confidence = 0.6` and
-routed to `review`, never auto-matched. When both sides state a salt and
-they differ, they're never matched at all.
+Molecule resolution (`resolve.ts`, `alias-seed.ts`) tries exact match, then
+an alias table, then salt-suffix stripping, before auto-creating a new
+molecule as a last resort. A salt mismatch between retailers (bare
+`Diclofenac` vs `Diclofenac Sodium`) is allowed but capped at a low
+confidence and routed to manual review rather than auto-matched; a
+disagreement on salt form is never matched at all.
 
 Fingerprinting (`fingerprint.ts`) is an order-insensitive hash over resolved
 molecule ids, strength, dosage form, and release modifier, so the same real
-drug lands on the same hash regardless of which retailer's grammar produced it.
+drug lands on the same hash regardless of which retailer's grammar produced
+it — that fingerprint is the join key for both price comparison and the
+banned-FDC check.
 
-Pack size parsing (`packsize.ts`) turns strings like `"15 Tablet(s) in
-Strip"` or `"10's"` into `{ count, type }`, which is what turns `sale_price`
-into a real per-unit number.
+## Banned-FDC detection
 
-The backfill (`scripts/parse.ts`) is re-runnable: every write is an upsert
-keyed on a stable hash (composition fingerprint, brand key) or the listing's
-own id.
-
-## Current results
-
-398 listings total across 3 retailers (PharmEasy 153, Jan Aushadhi 214,
-Apollo Pharmacy 31). 368 have `raw_composition_text` and are resolved: 311
-`auto`, 57 `review`, 0 genuinely `unmatched` (the 30 `unmatched` in
-`match_status` are all Apollo listings still missing composition text — see
-below, not a matching failure). 36 composition groups have listings from 2+
-retailers — Apollo hasn't contributed a confirmed cross-retailer match yet
-because of the reliability issue below.
-`pnpm parse:substitution` prints the cross-retailer price comparisons, for
-example:
-
-- Telmisartan 40mg + Amlodipine 5mg: Telma AM at ₹17.09/tablet vs Jan
-  Aushadhi at ₹1.51/tablet, 91% cheaper
-- Metformin 500mg: Glycomet at ₹1.47/tablet vs Jan Aushadhi at ₹0.62/tablet,
-  58% cheaper
-
-Known data-quality gap, left as-is rather than silently patched: a handful
-of molecules are duplicated by a genuine source typo in the retailer's own
-text (`Metformin Hydrchloride` vs `Metformin Hydrochloride`, `Glimipride`
-vs `Glimepiride`, `Chlorthalidon` vs `Chlorthalidone`, `Nimesulid` vs
-`Nimesulide`; see `pnpm parse:report`). Trigram similarity now surfaces most
-of these as review suggestions (see below) — but not all of them; see the
-merge-suggestions section for why.
-
-### Apollo Pharmacy reliability
-
-Both Apollo collectors (`apollo-product`, `apollo-discovery`) extract every
-target field correctly when run against a single URL — verified repeatedly.
-But under Bright Data's batch mode (many URLs in one job, which is what
-normal ingestion uses for speed), most rows come back with the extracted
-fields null even though the row itself is returned — first observed at 12
-concurrent discovery URLs (1/14 pages populated), confirmed again at product
-scrape time (0/12, then 0/19 populated across two full batches). Falling back
-to one collector call per URL (`discoveryChunkSize`/`productChunkSize: 1` in
-`src/ingest/runners/apollo.ts`) helped at first, but a subsequent refresh
-attempt returned degraded results even on a single URL that had worked
-moments earlier — consistent with Apollo's own anti-bot/rate-limiting
-reacting to the burst of requests generated while iterating on this
-collector, not a bug in the extraction logic itself. Every gap is logged
-honestly as a real `extraction_issue` row rather than silently dropped.
-Net effect: 31 listings discovered, only 1 with usable composition/price
-data as of this writing. Re-running `pnpm ingest --retailer=apollo
---refresh-only` after a cooldown should recover the rest — this needs a
-retailer that behaves like PharmEasy/Jan Aushadhi under sustained scraping,
-which Apollo's anti-bot posture doesn't currently allow for.
-
-### Banned FDC detection
-
-`pnpm banned:ingest` loads the real, complete August 2024 CDSCO tranche — 156
-fixed-dose combinations prohibited under S.O.3285(E) through S.O.3440(E), all
-dated 12.08.2024 (transcribed verbatim from the Ministry of Health & Family
-Welfare gazette PDF, cross-checked against CDSCO's own Gazette Notifications
-index). Matching is a two-tier derived join on `composition.molecule_set_hash`
-(molecule identity only, no strength) via `src/parse/banned-match.ts` — never
-a stored flag, and never a bare "BANNED" claim: every match carries its
-notification reference, date, and legal status (`prohibited` /
-`unapproved` / `revoked` / `sub_judice`), because FDC prohibitions have real
-legal history (the 2016 S.O. 814(E) tranche was quashed by the Delhi High
-Court in 2019, appeal still pending — a status column, not a boolean).
-
-Current results (`pnpm parse:report`): **1 confirmed match** — Camylofin
-Dihydrochloride 25mg + Paracetamol 300mg, matching banned item S.O.3412(E) at
-the exact stated strengths — plus 8 candidate-only matches, including 4
-Aceclofenac+Paracetamol compositions (100mg/325mg and 100mg/500mg, both
-scraped from PharmEasy) against the banned 50mg/125mg strength — correctly
-left as candidates, not confirmed, since the strengths genuinely differ.
-
-### Ops tracking and merge suggestions
-
-`heal_event` (`pnpm heal:log`) logs every Bright Data `scraper heal` call
-going forward, with real before/after row counts — 3 logged so far (2 from
-early Jan Aushadhi fixes, 1 from the Apollo product collector). `pnpm
-merge:suggestions` runs `pg_trgm` similarity over molecule names and writes
-candidates for human review, never auto-merging — 8 pending. The plan's
-suggested 0.85 similarity threshold caught none of the real typo duplicates
-above (they score 0.75-0.81); 0.7 catches most of them, but not
-`Glimepiride`/`Glimipride` (0.44 — an e/i transposition, a case trigram
-similarity structurally struggles with on short words), and a threshold low
-enough to catch that pulls in clearly-different drugs as noise, so it's left
-as a documented gap rather than force-fit.
-
-### Scheduled refresh
-
-`.github/workflows/refresh-prices.yml` re-runs `pnpm ingest --retailer=X
---refresh-only` (product collector only, no discovery) so `price_point` picks
-up real price drift over time instead of being a single point. The `cron:`
-trigger is **commented out on purpose** — enabling it means the workflow
-starts spending Bright Data credits on its own schedule with nobody
-watching. It's wired to `workflow_dispatch` only until that's deliberately
-turned on. `price_point` is append-on-change by design: if a scheduled run
-finds no price movement, that's a working change-detector reporting nothing
-changed, not a broken pipeline — don't manufacture history to fill a chart.
+Loads the CDSCO's August 2024 tranche — 156 fixed-dose combinations
+prohibited under a real gazette notification range, transcribed and
+cross-checked against CDSCO's own index. Matching is a two-tier derived
+join on molecule identity, never a stored flag or a bare "banned" claim:
+a shared molecule set alone is a **candidate**; it's promoted to
+**confirmed** only when the notification states strengths and every one
+matches exactly. Prohibitions have real legal history (an earlier tranche
+was quashed by the Delhi High Court, appeal pending), so every match also
+carries its notification reference and legal status rather than a boolean.
 
 ## Agent (`/ask`, `/scan`)
 
-### Scope decision: regulatory retrieval, not safety-text retrieval
+The agent never gets raw SQL access — it has exactly three tools
+(`find_substitutes`, `check_banned`, `search_notifications`), each a thin
+wrapper over the same query layer the rest of the app uses, so it physically
+cannot cross a composition boundary or invent a price. The system prompt
+draws hard boundaries: compare composition and price only, never recommend
+a different strength or dosage form, never answer dosage or interaction
+questions, always defer clinical judgment to a doctor or pharmacist, cite a
+source and capture date on every price. An adversarial eval
+(`src/agent/__tests__/refusal.test.ts`, `pnpm test:agent`) checks this
+behaviorally across prompt-injection attempts, elderly/pediatric dosing
+questions, and candidate-vs-confirmed wording.
 
-`safety_chunk` (uses/side-effects/warnings) was cut, not just deferred — the
-collector for it was never built, and it stays empty on purpose. Retrieval
-over side-effect and warning text pushes MedSwitch from price transparency
-into medical information: an agent that can retrieve that text will get
-asked "should I take this instead?" and will have material to answer with,
-which is exactly the line this project stays behind. `banned_fdc.rawText`
-(the 156 CDSCO gazette notifications, already in the DB from the banned-FDC
-ingest above) is embedded instead — `embedding vector(1536)` on
-`banned_fdc`, backfilled with `pnpm banned:embed`. It's genuinely
-unstructured text and on-brand: "why is this combination flagged?" is a
-question worth answering well; "what are the side effects" is one worth
-declining. Same pgvector capability, correct scope, no new collector.
+`safety_chunk` (uses/side-effects/warnings) is deliberately unbuilt —
+retrieval over that kind of text pushes this from price transparency into
+medical information, which is the line the project stays behind.
+`banned_fdc`'s notification text is embedded instead, so "why is this
+combination flagged" is answerable while "what are the side effects" isn't.
 
-### Tools, not text-to-SQL
+`/scan` extracts brand names and strengths from a photo (vision model,
+Zod-validated), resolves each line through the same query layer, and shows
+a combined annual saving. The image is processed only in that request's
+memory and never written to disk or a database.
 
-The agent (`src/agent/`) never gets raw SQL access. It has exactly three
-tools (`src/agent/tools.ts`), each a thin wrapper over `src/queries/`:
+Every OpenAI call in this project — parsing, embeddings, the agent, and
+prescription vision — uses the cheap tier of each model family; none of
+these tasks need more.
 
-- `find_substitutes` — resolve a brand/molecule name (or a known
-  `compositionFingerprint`) to ranked cross-retailer listings for that exact
-  composition. Every listing carries `sourceUrl` and `capturedAt`.
-- `check_banned` — look up a composition's banned-FDC tier: `confirmed`,
-  `candidate`, or `none`, with the notification reference and status.
-- `search_notifications` — pgvector similarity search over
-  `banned_fdc.embedding`, for "why is X regulated" questions.
-
-Because these are the only DB access points, the agent physically cannot
-cross a composition boundary (recommend a different strength/salt/dosage
-form) or invent a price — the guardrail lives in the query layer, not just
-the prompt. `src/agent/run.ts` runs a bounded tool loop (max 5 iterations)
-against `gpt-4o-mini`, and `app/api/agent/route.ts` streams each tool call,
-tool result, and the final answer as they happen (NDJSON) so the UI
-(`src/components/agent-chat.tsx`, `/ask`) can render "find_substitutes
-fired, then check_banned, then the answer assembled" instead of a bare chat
-bubble.
-
-### Guardrails and the refusal eval
-
-The system prompt (`src/agent/system-prompt.ts`) draws hard boundaries:
-compare composition and price only; never recommend a different strength,
-salt, or dosage form; never answer dosage/interaction/"should I switch"
-questions; always defer clinical judgment to a doctor or pharmacist; cite
-`sourceUrl` and `capturedAt` on every price; never call a `candidate`
-banned-FDC match "banned". `src/agent/__tests__/refusal.test.ts`
-(`pnpm test:agent`, kept separate from `pnpm test` since it hits the live
-OpenAI API and DB) asserts these behaviorally across 13 adversarial and
-legitimate prompts — strength-splitting questions, generic-equivalence
-verdicts, "what should I take instead" after a banned-drug question, a
-direct prompt-injection attempt, elderly/pediatric dosing, candidate-vs-
-confirmed wording, drug interactions, and honest "not found" vs.
-fabrication. **13/13 passing.**
-
-### Prescription scan (`/scan`)
-
-Upload a photo → `gpt-4o-mini` vision call extracts brand names and
-strengths as a Zod-validated list (`src/parse/prescription-ocr.ts`) → each
-line resolves to a composition via the same query layer the agent uses →
-renders a substitution table per item with a combined annual saving. The
-image is downscaled client-side, sent once as a data URL, processed only in
-that request's memory, and never written to disk or the database — stated
-directly in the page. Low-confidence extractions still show the verbatim
-`rawText` reading so the user can correct it via a normal search, rather
-than silently committing to a guessed brand.
-
-### Model choice: cheap tier throughout
-
-Every OpenAI call in this project — parsing (`llm.ts`), embeddings
-(`embed.ts`), the agent (`run.ts`), and prescription vision
-(`prescription-ocr.ts`) — uses `gpt-4o-mini` and `text-embedding-3-small`
-specifically, not the larger/pricier models in the same families. This was
-already true for parsing; the agent and vision calls kept the same tier
-rather than reaching for a stronger model, since none of these tasks
-(constrained tool orchestration, structured extraction) need it.
-
-### Cut: MCP server
-
-The plan's Step 6 (an MCP server exposing the same three tools) was cut
-first, per its own explicit cut order (`MCP → prescription photo → chat UI
-polish`, `never cut` the refusal eval) — it's the least load-bearing piece
-today, even though it would have been cheap to add since the tools already
-exist. Not built.
-
-### Known gaps surfaced by the agent
-
-Both `/ask` and `/scan` call the exact same `resolveSubstitutionGroup()` /
-`searchProducts()` path the human-facing `/` search already used, so the
-agent surfaced two pre-existing data-layer gaps rather than introducing new
-ones. The first — substring search picking the first ILIKE match instead of
-the best-ranked one (a scanned "Glycomet 500mg" resolving to an unrelated
-combination product) — is now fixed: `searchProducts()` ranks candidates by
-match tier, single-molecule-over-combination, and price-comparison coverage
-instead of taking DB row order. The second — a full composition string can't
-be used as a `find_substitutes` query since it's longer than any single
-brand/molecule field it's matched against — is still open. See
-[`docs/known-gaps.md`](docs/known-gaps.md) for the full writeup of both,
-including what stayed a same-day fix vs. what didn't and why. The agent's own
-guardrails handled the first gap honestly even before it was fixed — stating
-the mismatch rather than hiding it — which is the correct behavior regardless
-of the underlying ranking bug.
+See [`docs/known-gaps.md`](docs/known-gaps.md) for what's still open, logged
+deliberately rather than patched over.
 
 ## Running it
-
-### Quick path: seeded demo data, no Bright Data account
-
-```bash
-pnpm install
-cp .env.example .env   # fill in DATABASE_URL (and OPENAI_API_KEY to use /ask, /scan)
-pnpm setup:demo
-pnpm dev
-```
-
-`pnpm setup:demo` (`scripts/setup-demo.ts`) migrates the schema, then loads
-[`docs/demo-fixture.sql`](docs/demo-fixture.sql) — a real snapshot of the
-parsed database (369 listings, 249 compositions, all 156 CDSCO banned-FDC
-notifications with embeddings, the confirmed Camylofin match, 3 heal_events),
-not synthetic placeholder data. It's a no-op if `composition` already has
-rows, so it's safe to run against a database you're reusing. Needs a Postgres
-database (Neon or Supabase) with the `vector` and `pg_trgm` extensions
-enabled — no Bright Data account or OpenAI key required to browse `/`,
-`/search`, `/pipeline`, `/review`, and `/safety`; `/ask` and `/scan` need
-`OPENAI_API_KEY`.
-
-### Full pipeline: real scrapes through a live Bright Data account
 
 ```bash
 pnpm install
@@ -321,8 +118,6 @@ pnpm ingest --retailer=pharmeasy
 pnpm ingest --retailer=janaushadhi
 pnpm ingest --retailer=apollo
 pnpm parse
-pnpm parse:report
-pnpm parse:substitution
 pnpm banned:ingest
 pnpm banned:embed
 pnpm merge:suggestions
@@ -331,9 +126,10 @@ pnpm test:agent
 pnpm dev
 ```
 
-Requires a Postgres database (Neon or Supabase) with the `vector` and
-`pg_trgm` extensions enabled, a Bright Data account/API token (billing, promo
-code `wemakedevs` for hackathon credit), and an OpenAI API key.
+Needs a Postgres database (Neon or Supabase) with the `vector` and
+`pg_trgm` extensions enabled, a Bright Data account/API token, and an
+OpenAI API key. `pnpm setup:demo` loads a snapshot of the parsed database
+instead, for trying the app without running the full pipeline.
 
 ## Verifying results
 
@@ -352,8 +148,6 @@ SELECT field_name, COUNT(*) FROM extraction_issue GROUP BY 1 ORDER BY 2 DESC;
 
 ## Bright Data collectors
 
-Pinned in `.env` / `CLAUDE.md` so they get reused rather than recreated:
-`pharmeasy-product`, `pharmeasy-discovery`, `janaushadhi`, `apollo-product`,
-`apollo-discovery`. Heal with `npx @brightdata/cli scraper heal <id> "<what
-broke>" --url <url>`, or `pnpm heal:log` to log the heal as a `heal_event`
-row in the same step.
+Collector IDs are pinned in `.env` so they get reused rather than recreated.
+Heal with `npx @brightdata/cli scraper heal <id> "<what broke>" --url <url>`,
+or `pnpm heal:log` to log the heal as a `heal_event` row in the same step.
