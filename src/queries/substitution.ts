@@ -118,8 +118,7 @@ const LISTING_ROW_SQL = sql`
   WHERE bp.pack_unit_count IS NOT NULL AND pp.sale_price > 0
 `;
 
-// Includes single-retailer compositions with 2+ brands, not just
-// cross-retailer matches — see docs/known-gaps.md for the actual count.
+// Includes single-retailer compositions with 2+ brands, not just cross-retailer matches.
 export interface BrowseGroup {
   fingerprintHash: string;
   normalizedText: string;

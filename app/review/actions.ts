@@ -27,7 +27,7 @@ export async function rejectMerge(suggestionId: number) {
 }
 
 // Repoints composition_molecule/banned_fdc_molecule from B to A, aliases B's name to A, then deletes B — which
-// cascades away this suggestion row itself (see docs/known-gaps.md #3: no "approved" row survives, by schema design).
+// cascades away this suggestion row itself, so no "approved" row survives; only "rejected" ones do, by schema design.
 export async function approveMerge(suggestionId: number) {
   await db.transaction(async (tx) => {
     const [suggestion] = await tx

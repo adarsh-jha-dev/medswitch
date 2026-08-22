@@ -103,9 +103,6 @@ Every OpenAI call in this project — parsing, embeddings, the agent, and
 prescription vision — uses the cheap tier of each model family; none of
 these tasks need more.
 
-See [`docs/known-gaps.md`](docs/known-gaps.md) for what's still open, logged
-deliberately rather than patched over.
-
 ## Running it
 
 ```bash
