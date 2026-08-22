@@ -3,6 +3,9 @@ import { extractPrescriptionItems } from "../../../src/parse/prescription-ocr";
 
 // Uses the postgres.js driver (via the query layer), so this needs the Node runtime, not edge.
 export const runtime = "nodejs";
+// Vision OCR plus per-item substitution lookups can exceed Vercel's default
+// function duration on a cold Neon connection.
+export const maxDuration = 60;
 
 interface ScanRequestBody {
   imageDataUrl?: string;

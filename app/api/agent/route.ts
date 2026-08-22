@@ -2,6 +2,9 @@ import { runAgentTurn, type AgentEvent, type AgentMessage, type CompositionSeed 
 
 // Uses the postgres.js driver (via the query layer), so this needs the Node runtime, not edge.
 export const runtime = "nodejs";
+// A multi-tool agent loop plus streaming can exceed Vercel's default function
+// duration on a cold Neon connection.
+export const maxDuration = 60;
 
 interface AgentRequestBody {
   message?: string;
