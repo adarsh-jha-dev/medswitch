@@ -74,6 +74,19 @@ forget). A second, more explicit heal (naming the exact target keys:
 `composition`, `manufacturer`, `mrp`, `selling_price`, `pack_size`) fixed it —
 verified all 7 fields present on a re-run against the Telma-AM page.
 
+Retried `pnpm ingest --retailer=apollo --refresh-only` again later (still
+only 1/31 Apollo listings usable) — confirmed directly via `scraper run`
+against a known-good listing URL, bypassing the ingest pipeline entirely,
+that the collector currently returns almost nothing (`{"input": {"url": ...}}`,
+sometimes with `availability_status`, no `product_name`/`composition`/price
+fields at all). Not a regression in the collector's extraction logic — it's
+still the healed collector from above — and not a pipeline bug either, since
+this reproduces with a bare `scraper run` call outside our code. Consistent
+with Apollo's anti-bot posture blocking the collector outright rather than
+degrading its extraction. Don't keep retrying this back-to-back — it burns
+Bright Data credits for the same null result; worth trying again after a
+longer cooldown (hours, not minutes), not by re-healing.
+
 `heal_event` (`ops.ts`) logs every Bright Data heal from now on —
 `scripts/heal-log.ts` (`pnpm heal:log`) wraps `scraper heal` so this happens
 automatically instead of being reconstructed from memory later. Backfilled
