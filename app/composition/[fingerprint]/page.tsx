@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { bannedMatchesByCompositionId } from "../../../src/queries/banned";
+import { nearestKendras } from "../../../src/queries/kendra";
 import { computeSavings, getSubstitutionGroup } from "../../../src/queries/substitution";
 import { BannedNotice } from "../../../src/components/banned-notice";
 import { CopyLinkButton } from "../../../src/components/copy-link-button";
+import { NearestKendraList } from "../../../src/components/nearest-kendra";
 import { PriceTable } from "../../../src/components/price-table";
 import { SafetyLine } from "../../../src/components/safety-line";
 import { SavingsCallout } from "../../../src/components/savings-callout";
@@ -18,6 +20,8 @@ export default async function CompositionPage({ params }: { params: Promise<{ fi
 
   const bannedMatches = await bannedMatchesByCompositionId(group.compositionId);
   const savings = computeSavings(group.ranked);
+  const hasJanAushadhi = group.ranked.some((l) => l.retailerSlug === "janaushadhi");
+  const kendras = hasJanAushadhi ? await nearestKendras(process.env.SCRAPE_PINCODE ?? "700001") : [];
 
   return (
     <main className="mx-auto my-10 w-full max-w-4xl rounded-2xl border border-border bg-surface px-6 py-10 shadow-sm sm:px-10">
@@ -42,6 +46,8 @@ export default async function CompositionPage({ params }: { params: Promise<{ fi
       {savings ? <SavingsCallout savings={savings} /> : null}
 
       <PriceTable ranked={group.ranked} pendingReview={group.pendingReview} />
+
+      <NearestKendraList kendras={kendras} />
 
       <div className="mt-6 mb-8">
         <Button asChild variant="outline" size="sm">

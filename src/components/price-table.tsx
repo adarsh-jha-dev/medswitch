@@ -3,8 +3,25 @@ import { formatDateTime, formatRupees } from "../lib/format";
 import { Badge } from "./ui/badge";
 import { Card, CardContent } from "./ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
+import { VerifyPriceButton } from "./verify-price-button";
 
-function Row({ listing, cheapest, samePack }: { listing: SubstitutionListing; cheapest: boolean; samePack: boolean }) {
+// Only retailers with a real per-product page can be re-scraped on demand —
+// Jan Aushadhi is a static government MRP list, not a live listing.
+const VERIFIABLE_RETAILER_SLUGS = new Set(["pharmeasy", "apollo"]);
+
+function Row({
+  listing,
+  cheapest,
+  samePack,
+  maxPerUnit,
+}: {
+  listing: SubstitutionListing;
+  cheapest: boolean;
+  samePack: boolean;
+  maxPerUnit: number;
+}) {
+  const barPct = maxPerUnit > 0 ? Math.max(4, Math.round((listing.perUnit / maxPerUnit) * 100)) : 0;
+
   return (
     <TableRow className={cheapest ? "bg-brand-tint hover:bg-brand-tint" : undefined}>
       <TableCell className="align-top whitespace-normal">
@@ -12,6 +29,7 @@ function Row({ listing, cheapest, samePack }: { listing: SubstitutionListing; ch
           {listing.retailer}
         </a>
         <p className="mt-0.5 text-xs text-muted-foreground">captured {formatDateTime(listing.capturedAt)}</p>
+        {VERIFIABLE_RETAILER_SLUGS.has(listing.retailerSlug) ? <VerifyPriceButton listingId={listing.listingId} /> : null}
       </TableCell>
       <TableCell className="align-top whitespace-normal">
         <p className="text-sm">{listing.brandName}</p>
@@ -30,13 +48,22 @@ function Row({ listing, cheapest, samePack }: { listing: SubstitutionListing; ch
           <span className="ml-1.5 text-xs text-muted-foreground line-through">{formatRupees(listing.mrp)}</span>
         ) : null}
       </TableCell>
-      <TableCell className="tnum align-top text-sm font-semibold">
-        {formatRupees(listing.perUnit)}
-        {cheapest ? (
-          <Badge className="ml-2 bg-brand text-brand-foreground" variant="default">
-            cheapest
-          </Badge>
-        ) : null}
+      <TableCell className="align-top">
+        <div className="relative min-w-28">
+          <div
+            className={`absolute inset-y-0 left-0 rounded-sm ${cheapest ? "bg-brand/25" : "bg-muted-foreground/15"}`}
+            style={{ width: `${barPct}%` }}
+            aria-hidden="true"
+          />
+          <p className="tnum relative py-0.5 pl-1.5 text-sm font-semibold">
+            {formatRupees(listing.perUnit)}
+            {cheapest ? (
+              <Badge className="ml-2 bg-brand text-brand-foreground" variant="default">
+                cheapest
+              </Badge>
+            ) : null}
+          </p>
+        </div>
       </TableCell>
     </TableRow>
   );
@@ -56,6 +83,7 @@ export function PriceTable({ ranked, pendingReview }: { ranked: SubstitutionList
     retailerBrandCounts.set(key, (retailerBrandCounts.get(key) ?? 0) + 1);
   }
   const samePackGroups = new Set([...retailerBrandCounts].filter(([, count]) => count > 1).map(([key]) => key));
+  const maxPerUnit = Math.max(0, ...ranked.map((l) => l.perUnit));
 
   return (
     <div className="mb-8">
@@ -78,7 +106,13 @@ export function PriceTable({ ranked, pendingReview }: { ranked: SubstitutionList
               </TableHeader>
               <TableBody>
                 {ranked.map((l, i) => (
-                  <Row key={l.listingId} listing={l} cheapest={i === 0} samePack={samePackGroups.has(`${l.retailer}::${l.brandName}`)} />
+                  <Row
+                    key={l.listingId}
+                    listing={l}
+                    cheapest={i === 0}
+                    samePack={samePackGroups.has(`${l.retailer}::${l.brandName}`)}
+                    maxPerUnit={maxPerUnit}
+                  />
                 ))}
               </TableBody>
             </Table>

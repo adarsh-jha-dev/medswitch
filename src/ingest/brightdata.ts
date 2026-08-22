@@ -22,7 +22,12 @@ async function fetchWithBackoff(url: string, init: RequestInit, maxAttempts = 5)
   }
 }
 
-export async function runCollector(collectorId: string, urls: string[]): Promise<unknown[]> {
+// A plain string is shorthand for { url }. Extra keys (e.g. pincode) pass
+// through to the collector's input row untouched — a collector that doesn't
+// use a given key just ignores it.
+export type CollectorInput = string | ({ url: string } & Record<string, unknown>);
+
+export async function runCollector(collectorId: string, inputs: CollectorInput[]): Promise<unknown[]> {
   const token = apiToken();
 
   const triggerRes = await fetchWithBackoff(
@@ -33,7 +38,7 @@ export async function runCollector(collectorId: string, urls: string[]): Promise
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(urls.map((url) => ({ url }))),
+      body: JSON.stringify(inputs.map((i) => (typeof i === "string" ? { url: i } : i))),
     },
   );
 

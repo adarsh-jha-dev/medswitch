@@ -30,6 +30,8 @@ Postgres tables (`src/db/schema/`) in five groups:
   `banned_fdc_molecule`
 - safety: `safety_chunk` — reserved but intentionally unpopulated; see
   "Agent" below.
+- kendra: `kendra` — real Jan Aushadhi retail-store locations; see "Nearest
+  Kendra" below.
 
 ## Ingestion
 
@@ -107,6 +109,50 @@ Every OpenAI call in this project — parsing, embeddings, the agent, and
 prescription vision — uses the cheap tier of each model family; none of
 these tasks need more.
 
+## Known limitations
+
+- **Apollo Pharmacy's extraction is unreliable.** Its collector is confirmed
+  correct against a single URL, but under batch load (and lately even single
+  calls) it returns rows with most fields null — consistent with anti-bot
+  rate-limiting, not a collector bug. Right now that means 1 of 31 Apollo
+  listings is usable; every gap is a logged `extraction_issue` row, not a
+  silent drop.
+- **The merge-suggestion threshold misses short-word transpositions.**
+  `pg_trgm` similarity for `"Glimepiride"` vs `"Glimipride"` is 0.44, far
+  below the 0.7 threshold tuned against real typo duplicates (which score
+  0.75–0.81) — a threshold low enough to catch it also pulls in genuinely
+  different drugs as noise.
+- **44 comparison groups, not thousands.** The pipeline seeds 6 molecule
+  families across 3 retailers at one pincode — enough to prove the matching
+  and pricing logic end to end, not a full pharmacy catalog.
+- **One pincode.** All prices are for 700001. Retailer pricing in India can
+  vary by seller and location, so a different pincode isn't guaranteed to
+  show the same listings or prices.
+- **Prices are a snapshot, not live.** Every price is timestamped at scrape
+  time (shown on each listing) — the composition page's "Verify this price
+  now" button re-scrapes a single listing on demand if you need a fresher
+  number, but nothing here polls continuously.
+- **Same brand, two pack sizes, shown as two rows.** `brand_product` keys on
+  pack size, so a product sold in both a 15-strip and a 30-strip is two
+  distinct rows in the price table under the same brand name — correct data,
+  annotated inline, not deduplicated.
+
+## Nearest Kendra
+
+`kendra` (`src/db/schema/kendra.ts`) holds real Jan Aushadhi Kendra (retail
+generic-medicine store) locations — 177 active Kolkata rows, sourced
+directly from janaushadhi.gov.in's own `getAllKendraByStateDistrict` API,
+reverse-engineered from the site's JS bundle (`src/ingest/kendra-api.ts`).
+That API returns real latitude/longitude, so `nearestKendras()`
+(`src/queries/kendra.ts`) ranks by actual haversine distance from the
+reference pincode's own Kendra, not a pincode-string guess. It's a direct
+fetch, not a Bright Data collector — the endpoint has no anti-bot posture
+and needs no JS rendering to reach, unlike everything else this project
+scrapes, so a collector would add cost with no technical benefit. The
+composition page shows the nearest few whenever Jan Aushadhi is one of the
+ranked listings. `pnpm kendra:ingest` re-runs it (idempotent, upserts on
+store code).
+
 ## Running it
 
 ```bash
@@ -121,6 +167,7 @@ pnpm ingest --retailer=apollo
 pnpm parse
 pnpm banned:ingest
 pnpm banned:embed
+pnpm kendra:ingest
 pnpm merge:suggestions
 pnpm test
 pnpm test:agent

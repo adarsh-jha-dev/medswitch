@@ -20,6 +20,7 @@
     "merge:suggestions": "tsx scripts/merge-suggestions.ts",
     "banned:ingest": "tsx scripts/banned-fdc-ingest.ts",
     "banned:embed": "tsx scripts/embed-banned-fdc.ts",
+    "kendra:ingest": "tsx scripts/kendra-ingest.ts",
     "test:agent": "vitest run src/agent/__tests__"
   },
   "dependencies": {

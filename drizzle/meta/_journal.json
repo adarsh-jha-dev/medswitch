@@ -43,6 +43,13 @@
       "when": 1787283504534,
       "tag": "0005_zippy_skrulls",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787387916587,
+      "tag": "0006_nice_northstar",
+      "breakpoints": true
     }
   ]
 }

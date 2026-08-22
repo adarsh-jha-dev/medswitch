@@ -10,7 +10,7 @@ import { healEvent, retailer } from "../src/db/schema";
 // Usage:
 //   pnpm heal:log --collector=<id> --symptom="<what's wrong>" --prompt="<heal prompt>" \
 //     [--retailer=<slug>] [--field=<field name>] [--url=<verify url>] \
-//     [--rows-before=<n>] [--auto-approve]
+//     [--rows-before=<n>] [--auto-approve] [--timeout=<seconds>]
 
 function arg(name: string): string | undefined {
   const prefix = `--${name}=`;
@@ -39,6 +39,7 @@ async function main() {
   const rowsBeforeArg = arg("rows-before");
   const rowsBefore = rowsBeforeArg ? Number(rowsBeforeArg) : null;
   const autoApprove = flag("auto-approve");
+  const timeout = arg("timeout");
 
   let retailerId: number | null = null;
   if (retailerSlug) {
@@ -50,9 +51,10 @@ async function main() {
   const healArgs = ["@brightdata/cli", "scraper", "heal", collectorId, healPrompt, "--json"];
   if (verifyUrl) healArgs.push("--url", verifyUrl);
   if (autoApprove) healArgs.push("--auto-approve", "--auto-save");
+  if (timeout) healArgs.push("--timeout", timeout);
 
   console.log(`[heal:log] running: npx ${healArgs.join(" ")}`);
-  const healOut = execFileSync("npx", healArgs, { encoding: "utf-8" });
+  const healOut = execFileSync("npx", healArgs, { encoding: "utf-8", maxBuffer: 1024 * 1024 * 32 });
   const healResult = JSON.parse(healOut);
   console.log(`[heal:log] heal status: ${healResult.status ?? "unknown"}`);
 

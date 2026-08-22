@@ -38,7 +38,12 @@ async function ingestProducts(runner: RetailerRunner, urls: string[], retailerId
   for (const batch of chunk(urls, runner.productChunkSize ?? BATCH_SIZE)) {
     const runId = await openCollectorRun(retailerId, runner.productCollectorId, batch.length);
     try {
-      const raw = await runCollector(runner.productCollectorId, batch);
+      // pincode rides along on every input row; a collector that doesn't
+      // support it (most don't yet) just ignores the extra key.
+      const raw = await runCollector(
+        runner.productCollectorId,
+        batch.map((url) => ({ url, pincode })),
+      );
       const records = raw.map((r) => ({ raw: r, product: runner.normalizeProduct(r) }));
       await persistProductBatch({ runId, retailerId, pincode, records, expectedFields: runner.expectedFields });
       await closeCollectorRun(runId, records.length === batch.length ? "succeeded" : "partial", records.length);
@@ -88,13 +93,17 @@ async function main() {
   const arg = process.argv.find((a) => a.startsWith("--retailer="));
   const slug = arg?.split("=")[1];
   if (!slug || !RUNNERS[slug]) {
-    console.error(`Usage: pnpm ingest --retailer=<${Object.keys(RUNNERS).join("|")}> [--refresh-only]`);
+    console.error(`Usage: pnpm ingest --retailer=<${Object.keys(RUNNERS).join("|")}> [--refresh-only] [--pincode=<pin>]`);
     process.exit(1);
   }
   const refreshOnly = process.argv.includes("--refresh-only");
 
-  const pincode = process.env.SCRAPE_PINCODE;
-  if (!pincode) throw new Error("SCRAPE_PINCODE is not set");
+  // --pincode overrides SCRAPE_PINCODE for one run, e.g. to re-scrape known
+  // listings at a second delivery location without touching .env. Only takes
+  // effect for collectors healed to read the per-row pincode field.
+  const pincodeArg = process.argv.find((a) => a.startsWith("--pincode="))?.split("=")[1];
+  const pincode = pincodeArg ?? process.env.SCRAPE_PINCODE;
+  if (!pincode) throw new Error("SCRAPE_PINCODE is not set (and no --pincode= override given)");
 
   const runner = await RUNNERS[slug]();
 

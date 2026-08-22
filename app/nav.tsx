@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 const LINKS = [
   { href: "/search", label: "Search", show: true },
+  { href: "/overspend", label: "Overspend", show: true },
   { href: "/ask", label: "Ask", show: process.env.NEXT_PUBLIC_SHOW_LLM_FEATURES === "true" },
   { href: "/scan", label: "Scan", show: process.env.NEXT_PUBLIC_SHOW_LLM_FEATURES === "true" },
   { href: "/safety", label: "Safety", show: true },
