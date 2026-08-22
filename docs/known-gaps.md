@@ -35,18 +35,23 @@ one review-status listing crossed the 2-retailer/2-brand threshold when it
 was approved to `verified` during Step 8's real functional test of the
 review actions, not a data change from anything in this list.)
 
-## 2. Same brand, two pack sizes, shown as two table rows
+## 2. Same brand, two pack sizes, shown as two table rows — ANNOTATED
 
 `brand_key` (in `src/parse/persist.ts`) is a hash of name + manufacturer +
 composition + **pack size**, so the same real product at two pack sizes
 (e.g. "Telma 20 Tablet" as a 15-strip and a 30-strip) becomes two distinct
 `brand_product` rows and therefore two rows in the composition page's price
 table — both under the same brand name. Correct data (both listings are
-real and priced independently), but reads oddly in the ranked table without
+real and priced independently), but read oddly in the ranked table without
 an explicit "same brand, different pack" annotation. Observed in the
 `Telmisartan 20mg` group (`Telma 20 Tablet` at ₹92.70/30 and ₹48.81/15).
-Not deduplicated or annotated today — the ₹/unit column already makes the
-comparison correct even if the visual grouping doesn't call it out.
+
+**Annotated** (not deduplicated — the underlying two-row structure is still
+correct data, and the ₹/unit column already makes the comparison correct):
+`PriceTable` (`src/components/price-table.tsx`) now groups ranked listings by
+`retailer + brandName` and adds a "same brand, different pack" note under the
+pack size whenever a brand appears more than once for the same retailer,
+verified against the real `Telmisartan 20mg` / `Telma 20 Tablet` case.
 
 ## 3. Approved merges leave no audit trail
 

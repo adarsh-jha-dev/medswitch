@@ -4,7 +4,7 @@ import { Badge } from "./ui/badge";
 import { Card, CardContent } from "./ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 
-function Row({ listing, cheapest }: { listing: SubstitutionListing; cheapest: boolean }) {
+function Row({ listing, cheapest, samePack }: { listing: SubstitutionListing; cheapest: boolean; samePack: boolean }) {
   return (
     <TableRow className={cheapest ? "bg-brand-tint hover:bg-brand-tint" : undefined}>
       <TableCell className="align-top whitespace-normal">
@@ -20,7 +20,10 @@ function Row({ listing, cheapest }: { listing: SubstitutionListing; cheapest: bo
           {listing.isGeneric ? " · generic" : ""}
         </p>
       </TableCell>
-      <TableCell className="align-top text-sm text-muted-foreground">{listing.packSize ?? `${listing.packUnitCount} units`}</TableCell>
+      <TableCell className="align-top text-sm text-muted-foreground">
+        {listing.packSize ?? `${listing.packUnitCount} units`}
+        {samePack ? <p className="mt-0.5 text-xs text-muted-foreground/70">same brand, different pack</p> : null}
+      </TableCell>
       <TableCell className="tnum align-top text-sm">
         {formatRupees(listing.salePrice)}
         {listing.mrp && listing.mrp > listing.salePrice ? (
@@ -44,6 +47,16 @@ export function PriceTable({ ranked, pendingReview }: { ranked: SubstitutionList
     return <p className="text-sm text-muted-foreground">No priced listings found for this composition yet.</p>;
   }
 
+  // brand_key includes pack size, so the same real product at two pack sizes
+  // (e.g. "Telma 20 Tablet" as a 15-strip and a 30-strip) is two distinct rows
+  // here — flag it so it doesn't read as a data error.
+  const retailerBrandCounts = new Map<string, number>();
+  for (const l of ranked) {
+    const key = `${l.retailer}::${l.brandName}`;
+    retailerBrandCounts.set(key, (retailerBrandCounts.get(key) ?? 0) + 1);
+  }
+  const samePackGroups = new Set([...retailerBrandCounts].filter(([, count]) => count > 1).map(([key]) => key));
+
   return (
     <div className="mb-8">
       {ranked.length === 0 ? (
@@ -65,7 +78,7 @@ export function PriceTable({ ranked, pendingReview }: { ranked: SubstitutionList
               </TableHeader>
               <TableBody>
                 {ranked.map((l, i) => (
-                  <Row key={l.listingId} listing={l} cheapest={i === 0} />
+                  <Row key={l.listingId} listing={l} cheapest={i === 0} samePack={samePackGroups.has(`${l.retailer}::${l.brandName}`)} />
                 ))}
               </TableBody>
             </Table>
