@@ -3,6 +3,8 @@
 Compares Indian pharmacy prices and compositions across retailers, so a
 patient on a chronic medication can see a cheaper equivalent.
 
+![A prescription for Telma AM 40/5 resolves to two products with identical composition: the brand at ₹17.09 per tablet and the Jan Aushadhi generic at ₹1.51 per tablet, saving about ₹5,684 a year at one tablet daily.](docs/images/patient-savings.svg)
+
 ## What it does
 
 Ingests product listings from multiple retailers, parses each retailer's raw
@@ -12,6 +14,8 @@ salt-form differences), and matches equivalent products by a composition
 fingerprint. A substitution query then compares real price-per-unit across
 retailers for the same drug, and every scraped composition is checked
 against the CDSCO list of banned fixed-dose combinations.
+
+![Four public sources feed Bright Data self-healing collectors, which write to a re-parseable raw store, then split into a regex parser and an LLM parser, converge on a composition fingerprint, and surface as substitution search, ban checking, and an agent.](docs/images/architecture-pipeline.svg)
 
 ## Schema
 
